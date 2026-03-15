@@ -1,6 +1,6 @@
 console.log("Script Loaded Successfully.");
 
-// 1. WORKER FUNCTION
+// 1. WORKER FUNCTION (PARALLEL DOWNLOADS)
 function workerScript() {
     const HF_USERNAME = "eorchat";
     const REPO_NAME = "eor";
@@ -17,6 +17,7 @@ function workerScript() {
     ];
 
     let modelBuffers = {}; 
+    let completedCount = 0;
 
     function formatBytes(bytes, decimals) {
         if (!+bytes) return '0 Bytes';
@@ -27,16 +28,17 @@ function workerScript() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
-    async function downloadFile(filename, index, totalFiles) {
+    async function downloadFile(filename) {
         const url = HF_BASE_URL + filename;
         
         self.postMessage({ 
             status: 'initiate', 
-            data: { name: filename, current: index + 1, total: totalFiles } 
+            data: { name: filename } 
         });
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000);
+        // Increased timeout to 10 mins for larger files
+        const timeoutId = setTimeout(() => controller.abort(), 600000); 
 
         try {
             const response = await fetch(url, { signal: controller.signal });
@@ -56,13 +58,9 @@ function workerScript() {
                 if (done) break;
                 chunks.push(value);
                 loaded += value.length;
-
-                if (total) {
-                    const filePercent = loaded / total;
-                    const basePercent = index / totalFiles;
-                    const globalPercent = Math.floor((basePercent + (filePercent / totalFiles)) * 100);
-                    self.postMessage({ status: 'progress', progress: globalPercent });
-                }
+                
+                // For parallel downloads, we just report that something is downloading
+                // The progress bar is updated based on 'file_complete' counts in main thread
             }
 
             const buffer = new Uint8Array(loaded);
@@ -74,17 +72,16 @@ function workerScript() {
 
             modelBuffers[filename] = buffer;
             
-            // Send buffer to main thread to trigger download
             self.postMessage({ 
                 status: 'file_complete', 
                 data: { name: filename, size: formatBytes(loaded) },
-                buffer: buffer.buffer // Transferable
+                buffer: buffer.buffer 
             }, [buffer.buffer]);
 
         } catch (err) {
             clearTimeout(timeoutId);
             let msg = err.message;
-            if (err.name === 'AbortError') msg = "Download Timeout (5 mins).";
+            if (err.name === 'AbortError') msg = "Download Timeout (10 mins).";
             self.postMessage({ status: 'error', data: "Failed to download " + filename + ": " + msg });
             throw err; 
         }
@@ -94,10 +91,12 @@ function workerScript() {
         if (e.data.type === 'load') {
             try {
                 const totalFiles = FILES_TO_DOWNLOAD.length;
-                self.postMessage({ status: 'log', data: "Starting batch download of " + totalFiles + " files..." });
-                for (let i = 0; i < totalFiles; i++) {
-                    await downloadFile(FILES_TO_DOWNLOAD[i], i, totalFiles);
-                }
+                self.postMessage({ status: 'log', data: "Starting PARALLEL download of " + totalFiles + " files..." });
+                
+                // SPEED FIX: Download all files at the same time
+                const promises = FILES_TO_DOWNLOAD.map(f => downloadFile(f));
+                await Promise.all(promises);
+                
                 self.postMessage({ status: 'ready', count: totalFiles });
             } catch (error) {
                 self.postMessage({ status: 'log', data: "Download stopped." });
@@ -105,7 +104,6 @@ function workerScript() {
         } 
         else if (e.data.type === 'generate') {
             setTimeout(() => {
-                // Dynamic response to stop "repeating" loop feeling
                 const input = e.data.text || "";
                 self.postMessage({ 
                     status: 'complete', 
@@ -124,7 +122,6 @@ const engine = {
     history: [],
 
     init: function() {
-        console.log("Engine Init Called");
         const confirmDownload = confirm("This will download ~1GB of files to your device.\n\nThey will be saved in your 'Downloads' folder.");
         if (!confirmDownload) return;
 
@@ -157,21 +154,23 @@ const engine = {
         };
 
         this.worker.onmessage = (e) => {
-            const { status, data, progress, buffer } = e.data;
+            const { status, data, buffer } = e.data;
 
             if (status === 'log') {
                 log.innerHTML += '> ' + data + '<br>';
             }
             else if (status === 'initiate') {
-                log.innerHTML += '> Downloading [' + data.current + '/' + data.total + ']: ' + data.name + '<br>';
-            }
-            else if (status === 'progress') {
-                bar.style.width = progress + '%';
+                log.innerHTML += '> Fetching: ' + data.name + '<br>';
             }
             else if (status === 'file_complete') {
                 log.innerHTML += '> Saved: ' + data.name + ' (' + data.size + ')<br>';
                 
-                // TRIGGER BROWSER DOWNLOAD
+                // PARALLEL PROGRESS LOGIC: Just update based on file completion
+                // We need a counter in the main thread
+                window.filesCompleted = (window.filesCompleted || 0) + 1;
+                const percent = Math.floor((window.filesCompleted / 7) * 100);
+                bar.style.width = percent + '%';
+                
                 if (buffer) {
                     const blob = new Blob([buffer], { type: 'application/octet-stream' });
                     const url = URL.createObjectURL(blob);
@@ -188,6 +187,7 @@ const engine = {
                 this.isReady = true;
                 overlay.classList.remove('active');
                 document.body.style.overflow = '';
+                window.filesCompleted = 0; // Reset counter
                 ui.updateStatus(true);
                 ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files saved to memory and disk.');
             }
@@ -202,6 +202,8 @@ const engine = {
             log.scrollTop = log.scrollHeight;
         };
 
+        // Reset global counter
+        window.filesCompleted = 0;
         this.worker.postMessage({ type: 'load' });
     },
 
@@ -226,7 +228,9 @@ const ui = {
         dot: document.getElementById('status-dot'),
         text: document.getElementById('status-text'),
         sidebar: document.getElementById('sidebar'),
-        backdrop: document.getElementById('mobile-backdrop')
+        backdrop: document.getElementById('mobile-backdrop'),
+        menuBtn: document.getElementById('menu-btn'),
+        menuIcon: document.getElementById('menu-icon')
     },
 
     updateStatus: function(isReady) {
@@ -253,10 +257,17 @@ const ui = {
     toggleMobileMenu: function() {
         if(!this.dom.sidebar) return;
         const isOpen = this.dom.sidebar.classList.contains('open');
-        if (isOpen) this.closeMobileMenu();
-        else {
+        
+        if (isOpen) {
+            this.closeMobileMenu();
+        } else {
             this.dom.sidebar.classList.add('open');
             this.dom.backdrop.classList.add('open');
+            // Change Icon to X
+            if(this.dom.menuIcon) {
+                this.dom.menuIcon.classList.remove('fa-bars');
+                this.dom.menuIcon.classList.add('fa-xmark');
+            }
         }
     },
 
@@ -264,6 +275,11 @@ const ui = {
         if(!this.dom.sidebar) return;
         this.dom.sidebar.classList.remove('open');
         this.dom.backdrop.classList.remove('open');
+        // Change Icon back to Bars
+        if(this.dom.menuIcon) {
+            this.dom.menuIcon.classList.remove('fa-xmark');
+            this.dom.menuIcon.classList.add('fa-bars');
+        }
     },
 
     resize: function(el) {
@@ -285,7 +301,6 @@ const ui = {
 
     addMessage: function(role, html, isLoading) {
         const row = document.createElement('div');
-        // Add 'user' class if role is user
         row.className = 'message-row' + (role === 'user' ? ' user' : '');
         
         let content = '';
@@ -293,9 +308,11 @@ const ui = {
             content = '<div class="avatar"><i class="fa-solid fa-user"></i></div><div class="message-content user-bubble">' + html + '</div>';
         } else {
             if (isLoading) {
-                content = '<div class="avatar"><i class="fa-solid fa-robot"></i></div><div class="message-content ai-text"><div class="typing-dots"></div></div>';
+                // AI No Avatar
+                content = '<div class="message-content ai-text"><div class="typing-dots"></div></div>';
             } else {
-                content = '<div class="avatar"><i class="fa-solid fa-robot"></i></div><div class="message-content ai-text">' + html + '</div>';
+                // AI No Avatar
+                content = '<div class="message-content ai-text">' + html + '</div>';
             }
         }
         
@@ -370,21 +387,16 @@ const app = {
 
         if (mode === 'chat') {
             const messages = document.querySelectorAll('.ai-text');
-            // Find the last AI message that isn't the welcome message
             const lastMsg = messages[messages.length - 1];
-            
             if(lastMsg) {
                 lastMsg.innerHTML = cleanData.replace(/\n/g, '<br>');
             }
-            
             engine.addToHistory('assistant', cleanData);
-            
             ui.dom.btn.disabled = false;
             ui.dom.input.focus();
         } 
         else {
             cleanData = cleanData.replace(/```[\w]*\n?/g, '').replace(/```/g, '');
-
             ui.dom.input.value = cleanData;
             ui.dom.input.disabled = false;
             ui.dom.input.placeholder = "Type anything here...";
