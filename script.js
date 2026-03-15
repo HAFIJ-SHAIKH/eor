@@ -7,7 +7,6 @@ const WORKER_CODE = `
     const REPO_NAME = "eor";
     const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
     
-    // UPDATED: Exact file list provided
     const FILES_TO_DOWNLOAD = [
         "Qwen2.5-1.5B-Instruct.Q4_K_M.gguf",
         "adapter_config.json",
@@ -19,8 +18,6 @@ const WORKER_CODE = `
     ];
 
     let modelBuffers = {}; 
-    let totalFiles = FILES_TO_DOWNLOAD.length;
-    let completedFiles = 0;
 
     function formatBytes(bytes, decimals = 2) {
         if (!+bytes) return '0 Bytes';
@@ -31,10 +28,18 @@ const WORKER_CODE = `
         return \`\${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} \${sizes[i]}\`;
     }
 
-    async function downloadFile(filename) {
+    async function downloadFile(filename, index, totalFiles) {
         const url = HF_BASE_URL + filename;
         
-        self.postMessage({ status: 'initiate', data: { name: filename } });
+        // Log Start
+        self.postMessage({ 
+            status: 'initiate', 
+            data: { 
+                name: filename, 
+                current: index + 1, 
+                total: totalFiles 
+            } 
+        });
 
         try {
             const response = await fetch(url);
@@ -58,16 +63,18 @@ const WORKER_CODE = `
                 chunks.push(value);
                 loaded += value.length;
 
-                // Calculate overall progress roughly based on individual file progress
-                // This is a simplification; for perfect accuracy we'd need total size of all files upfront
+                // CALCULATE GLOBAL PROGRESS
+                // Formula: (Files Completed / Total Files) + (Current File Progress / Total Files)
                 if (total) {
-                    const percent = Math.round((loaded / total) * 100);
-                    self.postMessage({ status: 'progress', progress: percent, filename: filename });
-                } else {
-                    self.postMessage({ status: 'progress', progress: -1, filename: filename });
+                    const filePercent = loaded / total;
+                    const basePercent = index / totalFiles;
+                    const globalPercent = Math.floor((basePercent + (filePercent / totalFiles)) * 100);
+                    
+                    self.postMessage({ status: 'progress', progress: globalPercent });
                 }
             }
 
+            // Combine chunks
             const buffer = new Uint8Array(loaded);
             let position = 0;
             for(const chunk of chunks) {
@@ -76,9 +83,20 @@ const WORKER_CODE = `
             }
 
             modelBuffers[filename] = buffer;
-            self.postMessage({ status: 'file_complete', data: { name: filename, size: formatBytes(loaded) }});
+            
+            // Log Complete
+            self.postMessage({ 
+                status: 'file_complete', 
+                data: { 
+                    name: filename, 
+                    size: formatBytes(loaded),
+                    current: index + 1,
+                    total: totalFiles
+                } 
+            });
 
         } catch (err) {
+            // Stop everything if one file fails
             self.postMessage({ status: 'error', data: \`Failed to download \${filename}: \${err.message}\` });
             throw err; 
         }
@@ -87,25 +105,27 @@ const WORKER_CODE = `
     self.onmessage = async (e) => {
         if (e.data.type === 'load') {
             try {
-                self.postMessage({ status: 'log', data: \`Starting download of \${totalFiles} files...\` });
+                const totalFiles = FILES_TO_DOWNLOAD.length;
+                self.postMessage({ status: 'log', data: \`Starting batch download of \${totalFiles} files...\` });
                 
-                for (const file of FILES_TO_DOWNLOAD) {
-                    await downloadFile(file);
-                    completedFiles++;
+                // Sequential Download Loop
+                for (let i = 0; i < totalFiles; i++) {
+                    await downloadFile(FILES_TO_DOWNLOAD[i], i, totalFiles);
                 }
                 
-                self.postMessage({ status: 'ready', count: completedFiles });
+                // Only reach here if ALL files are successful
+                self.postMessage({ status: 'ready', count: totalFiles });
                 
             } catch (error) {
-                self.postMessage({ status: 'log', data: "Download sequence failed or incomplete." });
+                self.postMessage({ status: 'log', data: "Download sequence stopped due to error." });
             }
         } 
         else if (e.data.type === 'generate') {
-            // Placeholder for actual inference
+            // Placeholder
             setTimeout(() => {
                 self.postMessage({ 
                     status: 'complete', 
-                    data: "Inference logic placeholder. Files are loaded in memory (modelBuffers).", 
+                    data: "Inference logic placeholder. All files are loaded in memory.", 
                     mode: e.data.mode 
                 });
             }, 500);
@@ -143,38 +163,40 @@ const engine = {
         }
 
         this.worker.onerror = (e) => {
-            log.innerHTML += \`<span style="color:red">> Worker Error: \${e.message}</span><br>\`;
+            log.innerHTML += \`<span style="color:red">> Worker Internal Error: \${e.message}</span><br>\`;
         };
 
         this.worker.onmessage = (e) => {
-            const { status, data, progress, filename, count } = e.data;
+            const { status, data, progress } = e.data;
 
             if (status === 'log') {
                 log.innerHTML += \`> \${data}<br>\`;
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'initiate') {
-                log.innerHTML += \`> Fetching: \${data.name}<br>\`;
+                // Shows "Downloading [1/7]: filename.gguf"
+                log.innerHTML += \`> Downloading [\${data.current}/\${data.total}]: \${data.name}<br>\`;
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'progress') {
-                if (progress !== -1) {
-                    bar.style.width = \`\${progress}%\`;
-                }
+                // Smooth global progress 0-100%
+                bar.style.width = \`\${progress}%\`;
             }
             else if (status === 'file_complete') {
-                log.innerHTML += \`> Downloaded: \${data.name} (\${data.size})<br>\`;
+                log.innerHTML += \`> Finished [\${data.current}/\${data.total}]: \${data.name} (\${data.size})<br>\`;
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
                 ui.updateStatus(true);
-                ui.addMessage('ai', \`Engine Ready. <strong>\${count}</strong> files loaded into memory.\`);
+                ui.addMessage('ai', \`Engine Ready. <strong>\${data.count}</strong> files completely downloaded.\`);
             }
             else if (status === 'error') {
-                log.innerHTML += \`<div style="color:red; padding:4px; border:1px solid red; margin:4px 0;">> ERROR: \${data}</div><br>\`;
+                log.innerHTML += \`<div style="color:#b91c1c; background:#fee2e2; padding:5px; margin-top:5px; border:1px solid #fca5a5; border-radius:4px;">> CRITICAL ERROR: \${data}</div><br>\`;
                 log.scrollTop = log.scrollHeight;
+                // Ensure status stays offline
+                ui.updateStatus(false);
             }
             else if (status === 'complete') {
                 app.handleResponse(data, e.data.mode);
