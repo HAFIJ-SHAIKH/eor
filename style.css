@@ -298,10 +298,10 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 
 /* --- 7. OVERLAYS --- */
 .loader-overlay {
-    position: absolute; 
+    position: fixed; /* Changed to fixed to cover full screen */
     inset: 0; 
     background: rgba(255,255,255,0.95); 
-    z-index: 50; 
+    z-index: 100; /* Higher z-index */
     display: none; 
     flex-direction: column; 
     align-items: center; 
