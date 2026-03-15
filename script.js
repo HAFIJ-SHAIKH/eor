@@ -11,10 +11,7 @@ const ui = {
             btn: document.getElementById('send-btn'),
             dot: document.getElementById('status-dot'),
             text: document.getElementById('status-text'),
-            sidebar: document.getElementById('sidebar'),
-            backdrop: document.getElementById('mobile-backdrop'),
-            menuBtn: document.getElementById('menu-btn'),
-            menuIcon: document.getElementById('menu-icon'),
+            sidebar: document.getElementById('sidebar'), // Keep reference even if hidden
             loader: {
                 overlay: document.getElementById('loader-overlay'),
                 log: document.getElementById('loader-log'),
@@ -27,13 +24,12 @@ const ui = {
             assistBtn: document.getElementById('assist-btn')
         };
 
-        // Event Listeners
-        if(this.dom.menuBtn) this.dom.menuBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this.toggleMobileMenu(); });
-        if(this.dom.backdrop) this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
-        if(this.dom.navWorkspace) this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
-        if(this.dom.navReset) this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
-        if(this.dom.navTheme) this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
-        if(this.dom.statusPill) this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
+        // Event Listeners (Removed Menu Logic)
+        if(this.dom.navWorkspace) this.dom.navWorkspace.addEventListener('click', () => console.log("Workspace"));
+        if(this.dom.navReset) this.dom.navReset.addEventListener('click', () => app.reset());
+        if(this.dom.navTheme) this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); });
+        if(this.dom.statusPill) this.dom.statusPill.addEventListener('click', () => { engine.init(); });
+        
         if(this.dom.input) {
             this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
             this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
@@ -59,25 +55,6 @@ const ui = {
             text.style.color = "var(--text-muted)";
             if(btn) btn.disabled = false; 
         }
-    },
-
-    toggleMobileMenu: function() {
-        const { sidebar, backdrop, menuIcon } = this.dom;
-        if(!sidebar) return;
-        const isOpen = sidebar.classList.contains('open');
-        if (isOpen) this.closeMobileMenu();
-        else {
-            sidebar.classList.add('open');
-            backdrop.classList.add('open');
-            if(menuIcon) menuIcon.className = "fa-solid fa-xmark";
-        }
-    },
-
-    closeMobileMenu: function() {
-        const { sidebar, backdrop, menuIcon } = this.dom;
-        if(sidebar) sidebar.classList.remove('open');
-        if(backdrop) backdrop.classList.remove('open');
-        if(menuIcon) menuIcon.className = "fa-solid fa-bars";
     },
 
     resize: function(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; },
@@ -113,6 +90,7 @@ const engine = {
     engine: null,
     isReady: false,
     conversationHistory: [],
+    MAX_MEMORY: 20, // Keep last 20 messages (approx. 40 mins of chat)
 
     init: async function() {
         const { loader } = ui.dom;
@@ -143,7 +121,7 @@ const engine = {
             setTimeout(() => {
                 loader.overlay.classList.remove('active');
                 document.body.style.overflow = '';
-                ui.addMessage('eor', 'AI Online. I remember our context.');
+                ui.addMessage('eor', 'AI Online. Memory set to last 20 messages.');
             }, 500);
 
         } catch (error) {
@@ -161,27 +139,36 @@ const engine = {
         ui.addMessage('eor', '', true); 
         
         try {
+            // Add new message to history
             this.conversationHistory.push({ role: "user", content: userInput });
 
-            // FIX: Increased max_tokens to 1024 to prevent cutoff
-            // and added logic to handle splitting if needed.
+            // Smart Memory Management: Only send last N messages to avoid slowdown
+            let contextToSend = this.conversationHistory;
+            if (this.conversationHistory.length > this.MAX_MEMORY) {
+                // Keep the very first message (usually instructions) + latest messages
+                // Or just slice the latest. Let's slice the latest for simplicity.
+                contextToSend = this.conversationHistory.slice(-this.MAX_MEMORY);
+            }
+
+            // FIX: Increased max_tokens to 2048 for longer responses
             const reply = await this.engine.chat.completions.create({
-                messages: this.conversationHistory,
+                messages: contextToSend,
                 temperature: 0.7,
-                max_tokens: 1024, 
+                max_tokens: 2048, 
             });
             
             let text = reply.choices[0].message.content;
             
-            // Handle finish reason (Safety check)
+            // Check if hit token limit
             if (reply.choices[0].finish_reason === "length") {
-                text += "\n\n[Response truncated due to length. Please say 'continue'.]";
+                text += "\n\n[...Response hit length limit. Type 'continue' to keep going...]";
             }
 
             this.conversationHistory.push({ role: "assistant", content: text });
             ui.updateLastMessage(text);
             
         } catch (err) {
+            // Remove failed user message from history
             this.conversationHistory.pop();
             ui.updateLastMessage(`Error: ${err.message}`);
         }
@@ -190,7 +177,6 @@ const engine = {
     resetMemory: function() {
         this.conversationHistory = [];
         if(this.engine) {
-            // Reset internal engine chat history too
             this.engine.resetChat(); 
         }
     }
