@@ -81,12 +81,15 @@
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing Engine</h2>
-        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files.<br>Please wait...</p>
+        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files.<br>They will be saved to your Downloads folder.</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
         <div class="log-text" id="loader-log">Waiting to start...</div>
     </div>
+
+    <!-- Hidden area for triggering downloads -->
+    <div id="download-area" style="display:none;"></div>
 
     <script src="script.js"></script>
 </body>
