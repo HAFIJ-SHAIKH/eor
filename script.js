@@ -97,40 +97,54 @@ const ui = {
             assistBtn: document.getElementById('assist-btn')
         };
 
-        // --- STRICT EVENT LISTENERS (Fix for buttons not working) ---
+        // --- STRICT EVENT LISTENERS ---
         
-        // 1. Menu Button
-        this.dom.menuBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.toggleMobileMenu();
-        });
+        // 1. Mobile Menu
+        if(this.dom.menuBtn) {
+            this.dom.menuBtn.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation();
+                this.toggleMobileMenu();
+            });
+        }
 
-        // 2. Backdrop
-        this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
+        if(this.dom.backdrop) {
+            this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
+        }
 
-        // 3. Sidebar Navigation
-        this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
-        this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
-        this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
+        // 2. Navigation
+        if(this.dom.navWorkspace) this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
+        if(this.dom.navReset) this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
+        if(this.dom.navTheme) this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
 
-        // 4. Status Pill (Initialize Engine)
-        this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
+        // 3. Status Pill (Initialize)
+        if(this.dom.statusPill) {
+            this.dom.statusPill.addEventListener('click', () => { 
+                engine.init(); 
+                this.closeMobileMenu(); 
+            });
+        }
 
-        // 5. Input & Buttons
-        this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
-        this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
+        // 4. Input Events
+        if(this.dom.input) {
+            this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
+            this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
+        }
         
-        // Fix: Send Button Listener
-        this.dom.btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            app.send();
-        });
+        // 5. Send Button
+        if(this.dom.btn) {
+            this.dom.btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                app.send();
+            });
+        }
 
-        // Fix: Assist Button Listener
-        this.dom.assistBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            app.assist('universal');
-        });
+        // 6. Assist Button
+        if(this.dom.assistBtn) {
+            this.dom.assistBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                app.assist('universal');
+            });
+        }
 
         this.updateStatus(false);
     },
@@ -144,34 +158,35 @@ const ui = {
             dot.classList.add('online');
             text.innerText = "System Ready";
             text.style.color = "#10b981";
-            btn.disabled = false;
+            if(btn) btn.disabled = false;
         } else {
             text.innerText = "Offline";
             text.style.color = "var(--text-muted)";
-            btn.disabled = false; 
+            if(btn) btn.disabled = false; 
         }
     },
 
     toggleMobileMenu: function() {
         const { sidebar, backdrop, menuIcon } = this.dom;
+        if(!sidebar) return;
         const isOpen = sidebar.classList.contains('open');
         if (isOpen) this.closeMobileMenu();
         else {
             sidebar.classList.add('open');
             backdrop.classList.add('open');
-            menuIcon.className = "fa-solid fa-xmark";
+            if(menuIcon) menuIcon.className = "fa-solid fa-xmark";
         }
     },
 
     closeMobileMenu: function() {
         const { sidebar, backdrop, menuIcon } = this.dom;
-        sidebar.classList.remove('open');
-        backdrop.classList.remove('open');
-        menuIcon.className = "fa-solid fa-bars";
+        if(sidebar) sidebar.classList.remove('open');
+        if(backdrop) backdrop.classList.remove('open');
+        if(menuIcon) menuIcon.className = "fa-solid fa-bars";
     },
 
     resize: function(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; },
-    scrollToBottom: function() { this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight; },
+    scrollToBottom: function() { if(this.dom.viewport) this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight; },
 
     formatText: function(text) {
         let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -184,6 +199,7 @@ const ui = {
 
     addMessage: function(role, content, isLoading = false) {
         const { list } = this.dom;
+        if(!list) return;
         const row = document.createElement('div');
         row.className = `message-row ${role}`;
         if (role === 'user') row.innerHTML = `<div class="message-content">${this.formatText(content)}</div>`;
@@ -205,6 +221,8 @@ const engine = {
 
     init: async function() {
         const { loader } = ui.dom;
+        if(!loader.overlay) return;
+        
         loader.overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
         loader.log.innerText = '> System Init...\n';
@@ -240,8 +258,7 @@ const engine = {
             env.allowLocalModels = false;
 
             this.generator = await pipeline('text-generation', modelUrl, {
-                quantized: true,
-                dtype: 'q4',
+                quantized: true, dtype: 'q4',
                 progress_callback: (data) => {
                     if(data.status === 'loading') loader.log.innerText = `> Loading: ${data.file} ${Math.round(data.progress || 0)}%`;
                 }
@@ -269,7 +286,7 @@ const engine = {
     },
 
     generate: async function(prompt) {
-        if (!this.isReady) return ui.addMessage('eor', "System offline.");
+        if (!this.isReady) return ui.addMessage('eor', "System offline. Click 'Offline' to start.");
         ui.addMessage('eor', '', true); 
         try {
             const output = await this.generator(prompt, { max_new_tokens: 100 });
@@ -283,7 +300,7 @@ const engine = {
 // --- APP LOGIC ---
 const app = {
     handleEnter(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); } },
-    reset() { ui.dom.list.innerHTML = ''; ui.addMessage('eor', "Reset."); },
+    reset() { if(ui.dom.list) ui.dom.list.innerHTML = ''; ui.addMessage('eor', "Reset."); },
     
     async send() {
         const text = ui.dom.input.value.trim();
