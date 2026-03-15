@@ -39,6 +39,7 @@
             <button class="nav-item" onclick="app.reset()">New Session</button>
             
             <div class="sidebar-footer">
+                <!-- This click now works because window.engine is exposed in JS -->
                 <div class="status-pill" onclick="engine.init()">
                     <div class="status-dot" id="status-dot"></div>
                     <span class="status-text" id="status-text">Model Offline</span>
@@ -84,18 +85,18 @@
                     </button>
                 </div>
             </div>
-
-            <!-- Model Loader Overlay -->
-            <div class="loader-overlay" id="loader-overlay">
-                <i class="fa-solid fa-microchip loader-icon"></i>
-                <h2 class="modal-title">Initializing Engine</h2>
-                <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files from Hugging Face.<br>Please wait...</p>
-                <div class="progress-container">
-                    <div class="progress-bar" id="progress-bar"></div>
-                </div>
-                <div class="log-text" id="loader-log">Waiting to start...</div>
-            </div>
         </main>
+    </div>
+
+    <!-- MOVED OVERLAY HERE (Direct child of body) -->
+    <div class="loader-overlay" id="loader-overlay">
+        <i class="fa-solid fa-microchip loader-icon"></i>
+        <h2 class="modal-title">Initializing Engine</h2>
+        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files from Hugging Face.<br>Please wait...</p>
+        <div class="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="log-text" id="loader-log">Waiting to start...</div>
     </div>
 
     <!-- Main Application Script -->
