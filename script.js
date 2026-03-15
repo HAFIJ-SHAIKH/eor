@@ -97,35 +97,23 @@ const ui = {
             assistBtn: document.getElementById('assist-btn')
         };
 
-        // --- CRITICAL: Event Listeners managed here ---
+        // --- FIX: Event Listeners added here ---
         
         // 1. Mobile Menu Button
-        this.dom.menuBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.toggleMobileMenu();
-        });
+        this.dom.menuBtn.addEventListener('click', () => this.toggleMobileMenu());
 
-        // 2. Backdrop (Click to close)
-        this.dom.backdrop.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.closeMobileMenu();
-        });
+        // 2. Backdrop
+        this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
 
-        // 3. Sidebar Navigation
+        // 3. Navigation
         this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
         this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
-        this.dom.navTheme.addEventListener('click', () => { 
-            document.body.classList.toggle('dark-mode'); 
-            this.closeMobileMenu(); 
-        });
+        this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
 
-        // 4. Status Pill (Init Engine)
-        this.dom.statusPill.addEventListener('click', () => { 
-            engine.init(); 
-            this.closeMobileMenu(); 
-        });
+        // 4. Init Engine
+        this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
 
-        // 5. Input & Send Button
+        // 5. Inputs
         this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
         this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
         this.dom.btn.addEventListener('click', () => app.send());
@@ -147,7 +135,6 @@ const ui = {
         } else {
             text.innerText = "Offline";
             text.style.color = "var(--text-muted)";
-            btn.disabled = false; // Enabled so we can click to trigger warning
         }
     },
 
@@ -233,7 +220,12 @@ const engine = {
         loader.bar.style.width = '0%';
 
         try {
-            // 1. SMART FILE CHECK
+            // SECURITY CHECK: Detect if running on file:// protocol which blocks downloads
+            if (window.location.protocol === 'file:') {
+                throw new Error("Cannot download files from 'file://' protocol. Please use a local server (e.g. VS Code Live Server).");
+            }
+
+            // 1. FILE HANDLING
             let progress = 0;
             const totalFiles = FILES_TO_DOWNLOAD.length;
 
@@ -242,20 +234,18 @@ const engine = {
                 loader.log.innerText += `> Checking ${file}...\n`;
                 
                 if (await fileExists(file)) {
-                    loader.log.innerText += `> Found in storage. Verifying...\n`;
+                    loader.log.innerText += `> Found locally. Verifying...\n`;
                     try { 
                         await loadFileToMemory(file); 
-                        loader.log.innerText += `> Verified.\n`;
+                        loader.log.innerText += `> Verified OK.\n`;
                     } catch (e) { 
-                        // If corrupted, download again
-                        loader.log.innerText += `> File corrupted. Re-downloading...\n`;
+                        loader.log.innerText += `> Corrupted. Re-downloading...\n`;
                         await downloadAndSave(file, (loaded, size) => {
                             const percent = ((progress + loaded/size) / totalFiles) * 80;
                             loader.bar.style.width = percent + '%';
                         });
                     }
                 } else {
-                    // If missing, download
                     loader.log.innerText += `> Not found. Downloading...\n`;
                     await downloadAndSave(file, (loaded, size) => {
                         const percent = ((progress + loaded/size) / totalFiles) * 80;
@@ -268,7 +258,7 @@ const engine = {
 
             loader.log.innerText += '> All files ready. Loading model...\n';
             
-            // 2. LOAD MODEL
+            // 2. MODEL LOADING
             const ggufBuffer = await loadFileToMemory(FILES_TO_DOWNLOAD[0]);
             const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
             const modelUrl = URL.createObjectURL(modelBlob);
@@ -283,8 +273,8 @@ const engine = {
                 });
                 loader.log.innerText += '> Model loaded successfully.\n';
             } catch (err) {
-                console.warn("Model load failed:", err);
-                loader.log.innerText += `> Model load failed (Security). Switching to Simulation.\n`;
+                console.warn(err);
+                loader.log.innerText += `> Inference failed (Security/SharedArrayBuffer). Switching to Simulation.\n`;
                 this.generator = null; 
             }
 
@@ -300,7 +290,7 @@ const engine = {
 
         } catch (error) {
             console.error(error);
-            loader.log.innerText += `\n> CRITICAL ERROR: ${error.message}\n`;
+            loader.log.innerHTML += `\n> <span style="color:red">ERROR: ${error.message}</span>\n`;
             loader.bar.style.width = '0%';
             document.body.style.overflow = '';
             ui.updateStatus(false);
@@ -325,7 +315,7 @@ const engine = {
             }
         } else {
             await new Promise(r => setTimeout(r, 1200));
-            const simulated = `**[Simulation Mode]**\n\nReceived: "${prompt}"\n\nThe AI engine is disabled in this environment. Ensure you are running on a local server (http://localhost) with SharedArrayBuffer support.`;
+            const simulated = `**[Simulation Mode]**\n\nReceived: "${prompt}"\n\nThe AI engine is disabled in this environment. Ensure you are on a local server.`;
             ui.updateLastMessage(simulated);
         }
     }
@@ -391,6 +381,9 @@ const app = {
 // Initialize on Load
 window.addEventListener('DOMContentLoaded', () => {
     ui.init();
+    
+    // Fix: Attach to window explicitly so HTML events can find them if needed
+    // (Though we added listeners in JS, this is extra safety)
     window.ui = ui;
     window.app = app;
     window.engine = engine;
