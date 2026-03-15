@@ -1,5 +1,7 @@
-// 1. WORKER CODE STRING
-const WORKER_CODE = `
+console.log("Script Loaded Successfully. Checking DOM...");
+
+// 1. WORKER FUNCTION
+function workerScript() {
     const HF_USERNAME = "eorchat";
     const REPO_NAME = "eor";
     const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
@@ -16,7 +18,7 @@ const WORKER_CODE = `
 
     let modelBuffers = {}; 
 
-    function formatBytes(bytes, decimals = 2) {
+    function formatBytes(bytes, decimals) {
         if (!+bytes) return '0 Bytes';
         const k = 1024;
         const dm = decimals < 0 ? 0 : decimals;
@@ -105,18 +107,21 @@ const WORKER_CODE = `
             }, 500);
         }
     };
-`;
+}
 
-// 2. ENGINE OBJECT
+// 2. ENGINE CONTROLLER
 const engine = {
     worker: null,
     isReady: false,
     history: [],
 
     init: function() {
-        // DEBUG ALERT 1
-        alert("Button Clicked! Function started.");
+        console.log("Engine Init Called");
         
+        // Warning for Data Usage (Especially mobile)
+        const confirmDownload = confirm("This will download approximately 1GB of model data. \n\nAre you sure you want to continue? (WiFi recommended)");
+        if (!confirmDownload) return;
+
         if (this.isReady) {
             alert("Already Ready");
             return;
@@ -127,17 +132,19 @@ const engine = {
         const overlay = document.getElementById('loader-overlay');
 
         if(!log || !bar || !overlay) {
-            alert("ERROR: Cannot find DOM elements (Check HTML IDs)");
-            console.error("Loader DOM elements not found!");
+            alert("ERROR: Cannot find DOM elements");
             return;
         }
         
         overlay.classList.add('active');
+        // Lock body scroll on mobile
+        document.body.style.overflow = 'hidden';
+        
         log.innerHTML = '> Initializing...';
         bar.style.width = '0%';
 
         try {
-            const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
+            const blob = new Blob(['(' + workerScript.toString() + ')()'], { type: 'text/javascript' });
             this.worker = new Worker(URL.createObjectURL(blob));
         } catch (e) {
             alert("Error creating Worker: " + e.message);
@@ -153,11 +160,9 @@ const engine = {
 
             if (status === 'log') {
                 log.innerHTML += '> ' + data + '<br>';
-                log.scrollTop = log.scrollHeight;
             }
             else if (status === 'initiate') {
                 log.innerHTML += '> Downloading [' + data.current + '/' + data.total + ']: ' + data.name + '<br>';
-                log.scrollTop = log.scrollHeight;
             }
             else if (status === 'progress') {
                 bar.style.width = progress + '%';
@@ -169,16 +174,22 @@ const engine = {
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
+                // Unlock body scroll
+                document.body.style.overflow = '';
                 ui.updateStatus(true);
                 ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files completely downloaded.');
             }
             else if (status === 'error') {
                 log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
-                log.scrollTop = log.scrollHeight;
+                // Unlock body scroll on error too
+                document.body.style.overflow = '';
             }
             else if (status === 'complete') {
                 app.handleResponse(data, e.data.mode);
             }
+            
+            // Keep log scrolled to bottom
+            log.scrollTop = log.scrollHeight;
         };
 
         this.worker.postMessage({ type: 'load' });
@@ -195,7 +206,7 @@ const engine = {
     }
 };
 
-// 3. UI OBJECT
+// 3. UI CONTROLLER (Updated for Mobile)
 const ui = {
     dom: {
         list: document.getElementById('chat-list'),
@@ -203,7 +214,9 @@ const ui = {
         input: document.getElementById('msg-input'),
         btn: document.getElementById('send-btn'),
         dot: document.getElementById('status-dot'),
-        text: document.getElementById('status-text')
+        text: document.getElementById('status-text'),
+        sidebar: document.getElementById('sidebar'),
+        backdrop: document.getElementById('mobile-backdrop')
     },
 
     updateStatus: function(isReady) {
@@ -225,6 +238,25 @@ const ui = {
             text.style.color = "#ef4444";
             btn.disabled = false;
         }
+    },
+
+    // NEW: Mobile Menu Logic
+    toggleMobileMenu: function() {
+        if(!this.dom.sidebar) return;
+        const isOpen = this.dom.sidebar.classList.contains('open');
+        
+        if (isOpen) {
+            this.closeMobileMenu();
+        } else {
+            this.dom.sidebar.classList.add('open');
+            this.dom.backdrop.classList.add('open');
+        }
+    },
+
+    closeMobileMenu: function() {
+        if(!this.dom.sidebar) return;
+        this.dom.sidebar.classList.remove('open');
+        this.dom.backdrop.classList.remove('open');
     },
 
     resize: function(el) {
@@ -355,12 +387,10 @@ const app = {
     }
 };
 
-// 5. GLOBAL ATTACHMENT (CRITICAL FIX)
-// Do NOT wait for window.onload. Attach immediately so buttons work.
+// 5. GLOBAL ATTACHMENT
 console.log("Script Loaded. Attaching to window...");
 window.engine = engine;
 window.app = app;
 window.ui = ui;
 
-// Initialize UI state
 ui.updateStatus(false);
