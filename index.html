@@ -26,13 +26,11 @@
             <div class="context-panel">
                 <div class="context-title"><i class="fa-solid fa-brain"></i> Active Context</div>
                 <div class="context-chips">
-                    <div class="chip">Mobile</div>
-                    <div class="chip">AI</div>
+                    <div class="chip">AI Chat</div>
                     <div class="chip">Storage</div>
                 </div>
             </div>
             
-            <!-- Navigation (No onclick attributes) -->
             <nav class="sidebar-nav">
                 <button class="nav-item active" id="nav-workspace">Workspace</button>
                 <button class="nav-item" id="nav-reset">New Session</button>
@@ -57,8 +55,8 @@
                             <h2>Welcome to <strong>EOR Workspace</strong></h2>
                             <p>
                                 System Ready.<br>
-                                • Click "Offline" to start download (1GB).<br>
-                                • Use WiFi for best performance.
+                                • Click "Offline" to start AI.<br>
+                                • Model size: ~1GB (WiFi recommended).
                             </p>
                         </div>
                     </div>
@@ -67,7 +65,6 @@
             
             <div class="input-dock-wrapper">
                 <div class="assist-toolbar">
-                    <!-- Assist Button with Animation Class -->
                     <button class="assist-btn universal-btn" id="assist-btn" title="AI Assist">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> AI Assist
                     </button>
@@ -85,14 +82,13 @@
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing AI</h2>
-        <p class="modal-desc">Downloading Model (1.2 GB)...<br>Please keep tab open.</p>
+        <p class="modal-desc">Checking storage...<brDownloading missing files...</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
         <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
-    <!-- Script Module -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
