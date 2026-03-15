@@ -1,22 +1,17 @@
 :root {
-    /* --- 1. VARIABLES --- */
+    /* --- VARIABLES --- */
     --bg-body: #f8fafc;
     --bg-glass: rgba(255, 255, 255, 0.95);
     --bg-card: #ffffff;
-    
     --text-dark: #1e293b;
     --text-gray: #64748b;
-    
     --brand-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
     --user-bubble: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
     --magic-gradient: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%);
-    
     --shadow-soft: 0 4px 20px rgba(0,0,0,0.03);
     --shadow-float: 0 10px 30px -10px rgba(139, 92, 246, 0.15);
-    
     --radius-pill: 50px;
     --radius-lg: 16px;
-    
     --font-heading: 'Outfit', sans-serif;
     --font-body: 'Inter', sans-serif;
     --font-code: 'JetBrains Mono', monospace;
@@ -34,7 +29,7 @@ body {
     position: relative;
 }
 
-/* --- 2. BACKGROUND --- */
+/* --- BACKGROUND --- */
 .blob {
     position: absolute;
     filter: blur(80px);
@@ -47,7 +42,7 @@ body {
 
 @keyframes float { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(20px, 20px); } }
 
-/* --- 3. LAYOUT --- */
+/* --- LAYOUT --- */
 .app-container { display: flex; width: 100%; height: 100%; position: relative; z-index: 1; }
 
 /* Sidebar */
@@ -61,7 +56,7 @@ body {
     flex-direction: column;
     flex-shrink: 0;
     transition: transform 0.3s ease-in-out;
-    z-index: 1000; /* FIXED: Increased to sit on top of everything */
+    z-index: 1000;
 }
 
 .brand {
@@ -94,10 +89,7 @@ body {
     padding: 12px; color: var(--text-gray); border-radius: 12px;
     cursor: pointer; transition: all 0.2s; margin-bottom: 8px;
     font-size: 0.9rem; font-weight: 500;
-    background: none;
-    border: none;
-    width: 100%;
-    text-align: left;
+    background: none; border: none; width: 100%; text-align: left;
 }
 .nav-item:hover { background: rgba(99, 102, 241, 0.05); color: #4f46e5; }
 .nav-item.active { background: var(--brand-gradient); color: white; box-shadow: 0 4px 15px rgba(79, 70, 229, 0.2); }
@@ -113,13 +105,13 @@ body {
 .status-dot.error { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
 .status-text { font-size: 0.8rem; font-weight: 600; }
 
-/* Mobile Menu Toggle Button */
+/* Mobile Menu Button */
 .mobile-menu-btn {
     display: none;
     position: absolute;
     top: 20px;
     left: 20px;
-    z-index: 1001; /* Higher than sidebar */
+    z-index: 1001;
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -128,14 +120,13 @@ body {
     box-shadow: 0 2px 5px rgba(0,0,0,0.05);
 }
 
-/* Mobile Backdrop */
+/* Mobile Backdrop (No Blur) */
 .mobile-backdrop {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.4);
-    z-index: 999; /* Just below sidebar */
-    backdrop-filter: blur(2px);
+    background: rgba(0,0,0,0.5); /* Dim only, no blur */
+    z-index: 999;
 }
 
 /* Main Chat */
@@ -145,29 +136,31 @@ body {
     overflow-y: auto; 
     padding: 40px 20px; 
     display: flex; 
-    align-items: center; 
-    justify-content: center;
+    flex-direction: column;
 }
 
 .chat-container {
     width: 100%; 
-    max-width: 600px;
+    max-width: 800px; /* Wider for left/right layout */
+    margin: 0 auto;
     display: flex; 
     flex-direction: column; 
-    gap: 30px; 
-    padding-bottom: 200px; /* Increased padding to avoid input overlap */
-    align-items: center;
-    justify-content: center;
+    gap: 20px; 
+    padding-bottom: 160px; /* Space for input */
 }
 
-/* --- 4. MESSAGES --- */
+/* --- 4. MESSAGES (L/R LAYOUT) --- */
 .message-row { 
     display: flex; 
-    flex-direction: column; 
+    flex-direction: row; /* Default: AI Left */
+    align-items: flex-start;
     gap: 10px; 
     width: 100%; 
-    align-items: center; 
     animation: slideUp 0.3s ease-out; 
+}
+
+.message-row.user {
+    flex-direction: row-reverse; /* User Right */
 }
 
 @keyframes slideUp { 
@@ -180,58 +173,64 @@ body {
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0; font-size: 0.8rem;
     background: white; color: #4f46e5; border: 1px solid #e2e8f0;
-    margin-bottom: 5px;
 }
 
 .message-content { 
-    width: 100%; 
     max-width: 80%; 
     font-size: 0.95rem; 
     line-height: 1.6; 
-    text-align: center; 
-    padding: 12px 20px; 
+    padding: 12px 16px; 
     border-radius: 12px;
+    position: relative;
+}
+
+/* AI Styles (Left, No Bubble) */
+.message-row.user .avatar {
+    background: #4f46e5; color: white; border: none;
 }
 
 .ai-text { 
     color: var(--text-dark); 
     white-space: pre-wrap; 
     font-family: var(--font-body); 
-    background: rgba(255, 255, 255, 0.5); 
-    border: 1px solid rgba(0,0,0,0.05);
-    border-radius: 12px;
+    background: transparent; /* NO BUBBLE */
+    border: none;
+    text-align: left;
+    padding-left: 0;
+    padding-top: 6px; /* Align with avatar roughly */
 }
 
+/* User Styles (Right, Bubble) */
 .user-bubble {
     background: var(--user-bubble); 
     color: white; 
-    padding: 12px 24px; 
-    border-radius: 24px; 
+    border-radius: 18px 18px 4px 18px; /* Bubble tail */
     box-shadow: 0 4px 15px rgba(79, 70, 229, 0.2);
-    text-align: center;
+    text-align: left;
 }
 
-/* --- 5. INPUT AREA --- */
+/* --- 5. INPUT AREA (FIXED POSITIONING) --- */
 .input-dock-wrapper {
     position: absolute; 
-    bottom: 20px; /* Moved up from 30px */
-    left: 50%; 
-    transform: translateX(-50%);
-    width: 90%; 
-    max-width: 750px; 
+    bottom: 0; /* Stuck to bottom */
+    left: 0; 
+    width: 100%; /* Full width on mobile */
+    background: white;
+    border-top: 1px solid rgba(0,0,0,0.05);
     z-index: 50;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-bottom: env(safe-area-inset-bottom, 20px); /* MOBILE FIX: Adds space for home bar */
+    padding: 10px 20px;
+    /* Safe area for iPhone home bar */
+    padding-bottom: max(20px, env(safe-area-inset-bottom)); 
 }
 
 .assist-toolbar { 
     display: flex; 
     justify-content: center; 
     gap: 8px; 
-    margin-bottom: 12px; 
-    padding: 0 4px; 
+    margin-bottom: 8px; 
     flex-wrap: wrap; 
 }
 
@@ -263,19 +262,23 @@ body {
 }
 
 .input-dock {
-    background: white; 
-    padding: 8px 8px 8px 20px;
-    border-radius: var(--radius-pill); 
-    box-shadow: var(--shadow-float); 
-    border: 1px solid rgba(0,0,0,0.05); 
+    background: #f8fafc; /* Slight gray for contrast on white bg */
+    padding: 8px 12px;
+    border-radius: 24px; 
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.03); 
+    border: 1px solid #e2e8f0; 
     display: flex; 
     align-items: flex-end; 
-    gap: 12px;
+    gap: 10px;
     width: 100%; 
-    max-width: 500px;
-    transition: all 0.3s;
+    max-width: 600px;
+    transition: all 0.2s;
 }
-.input-dock:focus-within { box-shadow: 0 20px 40px -10px rgba(139, 92, 246, 0.2); border-color: #ddd6fe; }
+.input-dock:focus-within { 
+    background: white; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
+    border-color: #c7d2fe; 
+}
 
 textarea { 
     flex: 1; 
@@ -284,8 +287,8 @@ textarea {
     font-family: var(--font-body); 
     font-size: 1rem; 
     resize: none; 
-    max-height: 120px; 
-    padding: 12px 0; 
+    max-height: 100px; 
+    padding: 10px 0; 
     line-height: 1.5; 
     text-align: left; 
 }
@@ -294,29 +297,26 @@ textarea:focus { outline: none; }
 textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 
 .send-btn { 
-    width: 40px; height: 40px; border-radius: 50%; 
+    width: 36px; height: 36px; border-radius: 50%; 
     border: none; 
     background: var(--brand-gradient); 
     color: white; 
     cursor: pointer; 
     display: flex; align-items: center; justify-content: center; 
-    transition: transform 0.2s, box-shadow 0.2s; 
+    transition: transform 0.2s; 
     flex-shrink: 0;
+    margin-bottom: 2px;
 }
 .send-btn:hover:not(:disabled) { transform: scale(1.05); }
-.send-btn:disabled { 
-    background: #e2e8f0; 
-    color: #94a3b8; 
-    cursor: not-allowed; 
-}
+.send-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 
-/* --- 6. LOADER --- */
+/* --- LOADER --- */
 .typing-dots {
-    width: 40px; height: 40px; 
+    width: 30px; height: 30px; 
     background: var(--brand-gradient); 
     animation: shifter-anim 4s infinite cubic-bezier(0.68, -0.55, 0.265, 1.55); 
     display: block; 
-    margin: 0 auto 10px auto;
+    margin: 5px 0;
 }
 @keyframes shifter-anim { 
     0% { border-radius: 50%; transform: rotate(0deg); } 
@@ -326,21 +326,17 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
     100% { border-radius: 50%; transform: rotate(360deg); } 
 }
 
-/* --- 7. OVERLAYS --- */
 .loader-overlay {
-    position: fixed; 
-    inset: 0; 
+    position: fixed; inset: 0; 
     background: rgba(255,255,255,0.98); 
-    z-index: 2000; /* Highest Z-Index */
+    z-index: 2000; 
     display: none; 
     flex-direction: column; 
     align-items: center; 
     justify-content: center; 
     padding: 20px; 
     text-align: center; 
-    backdrop-filter: blur(10px);
 }
-
 .loader-overlay.active { display: flex; }
 
 .modal-title { font-family: var(--font-heading); margin-bottom: 10px; }
@@ -348,32 +344,16 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 
 .progress-container { 
     width: 100%; max-width: 400px; 
-    background: #e2e8f0; 
-    height: 6px; 
-    border-radius: 3px; 
-    margin: 20px 0; 
-    overflow: hidden; 
+    background: #e2e8f0; height: 6px; border-radius: 3px; margin: 20px 0; overflow: hidden; 
 }
-
 .progress-bar { 
-    height: 100%; 
-    background: var(--brand-gradient); 
-    width: 0%; 
-    transition: width 0.1s; 
+    height: 100%; background: var(--brand-gradient); width: 0%; transition: width 0.1s; 
 }
 
 .log-text { 
-    font-family: monospace; 
-    font-size: 0.75rem; 
-    color: var(--text-gray); 
-    height: 100px; 
-    overflow-y: auto; 
-    width: 100%; 
-    max-width: 500px; 
-    background: #f1f5f9; 
-    padding: 10px; 
-    border-radius: 8px; 
-    text-align: left; 
+    font-family: monospace; font-size: 0.75rem; color: var(--text-gray); 
+    height: 100px; overflow-y: auto; width: 100%; max-width: 500px; 
+    background: #f1f5f9; padding: 10px; border-radius: 8px; text-align: left; 
 }
 
 /* --- SCROLLBAR --- */
@@ -381,35 +361,34 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
-/* --- MOBILE RESPONSIVE --- */
+/* --- MOBILE --- */
 @media (max-width: 768px) { 
-    .mobile-menu-btn {
-        display: flex; 
-        align-items: center;
-        justify-content: center;
-    }
-
+    .mobile-menu-btn { display: flex; align-items: center; justify-content: center; }
     .sidebar {
-        position: fixed;
-        left: -280px; /* Hide off-screen */
-        top: 0;
-        bottom: 0;
-        z-index: 1000;
-        box-shadow: 5px 0 15px rgba(0,0,0,0.1);
+        position: fixed; left: -280px; top: 0; bottom: 0;
+        z-index: 1000; box-shadow: 5px 0 15px rgba(0,0,0,0.1);
     }
-
-    .sidebar.open {
-        left: 0; /* Slide in */
-    }
-
-    .mobile-backdrop.open {
-        display: block; /* Show dimmer */
-    }
-
-    .chat-container { 
-        max-width: 95%; 
-    } 
-    .input-dock-wrapper { 
-        width: 95%; 
-    }
+    .sidebar.open { left: 0; }
+    .mobile-backdrop.open { display: block; }
+    .chat-container { max-width: 100%; padding-bottom: 140px; }
 }
+
+/* Desktop tweaks */
+@media (min-width: 769px) {
+    .input-dock-wrapper {
+        bottom: 30px;
+        width: 90%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: transparent;
+        border-top: none;
+        padding-bottom: 0;
+        border-radius: 50px;
+        padding: 10px;
+        box-shadow: var(--shadow-float);
+    }
+    .input-dock {
+        background: white;
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+        }
