@@ -1,12 +1,9 @@
-console.log("System Boot. Target: eor_storage. Engine: Transformers.js.");
-
-// Import Library
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
 
-// Configuration
+// --- CONFIGURATION ---
 const HF_USERNAME = "eorchat";
 const REPO_NAME = "eor";
-const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
+const HF_BASE_URL = `https://huggingface.co/${HF_USERNAME}/${REPO_NAME}/resolve/main/`;
 const STORAGE_FOLDER = "eor_storage";
 
 const FILES_TO_DOWNLOAD = [
@@ -17,10 +14,8 @@ const FILES_TO_DOWNLOAD = [
 ];
 
 // --- STORAGE SYSTEM (OPFS) ---
-
 async function getStorageDir() {
     const root = await navigator.storage.getDirectory();
-    // This creates the folder inside the browser's hidden storage
     return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
 }
 
@@ -32,248 +27,147 @@ async function fileExists(filename) {
     } catch (e) { return false; }
 }
 
-function formatBytes(bytes) {
-    if (!+bytes) return '0 Bytes';
-    const k = 1024;
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + ['Bytes','KB','MB','GB'][i];
-}
-
 async function loadFileToMemory(filename) {
     const dir = await getStorageDir();
     const handle = await dir.getFileHandle(filename);
     const file = await handle.getFile();
-    
-    // INTEGRITY CHECK: Ensure file isn't empty
-    if (file.size === 0) {
-        throw new Error(`File ${filename} is corrupted (0 bytes).`);
-    }
-    
+    if (file.size === 0) throw new Error(`File ${filename} is corrupted (0 bytes).`);
     return await file.arrayBuffer();
 }
 
-async function downloadAndSave(filename) {
+async function downloadAndSave(filename, progressCallback) {
     const url = HF_BASE_URL + filename;
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        
-        const buffer = await response.arrayBuffer();
-        
-        // Save to eor_storage
-        const dir = await getStorageDir();
-        const handle = await dir.getFileHandle(filename, { create: true });
-        const writable = await handle.createWritable();
-        await writable.write(buffer);
-        await writable.close();
-        
-        return buffer;
-    } catch (err) {
-        throw new Error("Failed to download " + filename + ": " + err.message);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    
+    const reader = response.body.getReader();
+    const contentLength = +response.headers.get('Content-Length');
+    let receivedLength = 0;
+    let chunks = [];
+    
+    while(true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        receivedLength += value.length;
+        if(progressCallback) progressCallback(receivedLength, contentLength);
     }
+
+    const buffer = new Uint8Array(receivedLength);
+    let position = 0;
+    for(let chunk of chunks) {
+        buffer.set(chunk, position);
+        position += chunk.length;
+    }
+
+    const dir = await getStorageDir();
+    const handle = await dir.getFileHandle(filename, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(buffer);
+    await writable.close();
+    
+    return buffer.buffer;
 }
 
-// --- ENGINE CONTROLLER ---
-
-const engine = {
-    generator: null,
-    isReady: false,
-    history: [],
-
-    init: async function() {
-        if (this.isReady) return;
-        
-        const log = document.getElementById('loader-log');
-        const bar = document.getElementById('progress-bar');
-        const overlay = document.getElementById('loader-overlay');
-
-        if(!log || !bar || !overlay) return;
-        
-        overlay.classList.add('active');
-        document.body.style.overflow = 'hidden';
-        log.innerHTML = '> System Init...<br>';
-        bar.style.width = '0%';
-
-        try {
-            // 1. Verify/Create Folder
-            const dir = await getStorageDir();
-            log.innerHTML += '> Folder "eor_storage" created/verified in browser storage.<br>';
-            
-            let filesToFetch = [];
-            let filesLoaded = 0;
-            
-            // 2. Check files
-            for (const file of FILES_TO_DOWNLOAD) {
-                if (await fileExists(file)) {
-                    log.innerHTML += '> Found locally: ' + file + '. Verifying integrity...<br>';
-                    try {
-                        await loadFileToMemory(file); // Verify it works
-                        filesLoaded++;
-                    } catch (e) {
-                        log.innerHTML += '> Local file corrupted. Redownloading: ' + file + '<br>';
-                        filesToFetch.push(file);
-                    }
-                } else {
-                    log.innerHTML += '> Missing: ' + file + '. Will download.<br>';
-                    filesToFetch.push(file);
-                }
-            }
-
-            // 3. Download missing files
-            if (filesToFetch.length > 0) {
-                log.innerHTML += '> Starting download of ' + filesToFetch.length + ' files...<br>';
-                for(const file of filesToFetch) {
-                    await downloadAndSave(file);
-                    filesLoaded++;
-                    bar.style.width = Math.floor((filesLoaded / FILES_TO_DOWNLOAD.length) * 80) + '%';
-                }
-            }
-
-            log.innerHTML += '> All files verified in eor_storage.<br>';
-            log.innerHTML += '> Attempting to load AI Model (This may fail on file:// protocol)...<br>';
-
-            // 4. Load Config
-            const configBuffer = await loadFileToMemory("config.json");
-            // const config = JSON.parse(new TextDecoder().decode(configBuffer));
-
-            // 5. Load GGUF
-            const ggufBuffer = await loadFileToMemory("Qwen2.5-1.5B-Instruct.Q4_K_M.gguf");
-            const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
-            const modelUrl = URL.createObjectURL(modelBlob);
-
-            // 6. Initialize Pipeline
-            env.useBrowserCache = false; 
-            env.allowLocalModels = false;
-
-            this.generator = await pipeline('text-generation', modelUrl, {
-                quantized: true,
-                dtype: 'q4',
-            });
-
-            bar.style.width = '100%';
-            this.isReady = true;
-            overlay.classList.remove('active');
-            document.body.style.overflow = '';
-            ui.updateStatus(true);
-            ui.addMessage('ai', '<strong>AI Engine Online.</strong> Running locally from eor_storage.');
-
-        } catch (error) {
-            console.error(error);
-            
-            // DETAILED ERROR HANDLING
-            log.innerHTML += '<br><div style="color:orange; background:#fff7ed; padding:10px; border:1px solid #fdba74; border-radius:4px;">';
-            log.innerHTML += '<strong>AI Initialization Halted.</strong><br>';
-            log.innerHTML += 'Reason: Browser Security ("SharedArrayBuffer").<br>';
-            log.innerHTML += 'Status: Files <strong>ARE</strong> safely stored in "eor_storage".<br>';
-            log.innerHTML += 'Fix: You must run this file on a local server (e.g., VS Code "Live Server") to enable AI Inference.<br>';
-            log.innerHTML += '</div><br>';
-
-            document.body.style.overflow = '';
-            
-            // We stay in "Offline" mode but allow UI interaction
-            // We can fallback to simulation for the user to see the UI works
-            this.isReady = true; // Set to true so buttons work, but we'll simulate response
-            ui.updateStatus(true);
-            overlay.classList.remove('active');
-            ui.addMessage('ai', 'System Alert: AI Inference requires a local server (due to browser security). However, your files are successfully saved in <em>eor_storage</em>. Switching to Simulation Mode.');
-        }
-    },
-
-    generate: async function(text, mode) {
-        // Check if we are in Simulation Mode (generator is null but isReady is true due to error fallback)
-        const isSimulation = !this.generator;
-
-        if (!isSimulation) {
-            try {
-                const output = await this.generator(text, {
-                    max_new_tokens: 150,
-                    do_sample: true,
-                    temperature: 0.7,
-                    top_k: 50,
-                    return_full_text: false
-                });
-                const generatedText = output[0].generated_text;
-                app.handleStream(generatedText);
-                app.handleResponse(generatedText, mode);
-            } catch (err) {
-                app.handleStream("Error: " + err.message);
-            }
-        } else {
-            // SIMULATION MODE
-            await new Promise(r => setTimeout(r, 1000));
-            let response = "I received: " + text + "\n\n";
-            response += "[System]: Running in Simulation Mode because the browser blocked the AI engine (file:// protocol). \n";
-            response += "The files are correctly stored in 'eor_storage'. To use the real AI, please open this HTML file using a local server (e.g., 'Live Server' in VS Code).";
-            
-            app.handleStream(response);
-            app.handleResponse(response, mode);
-        }
-    },
-
-    addToHistory: function(role, content) {
-        this.history.push({ role, content });
-        if(this.history.length > 20) this.history = this.history.slice(this.history.length - 20);
-    }
-};
-
-// 3. UI CONTROLLER
+// --- UI CONTROLLER ---
 const ui = {
-    dom: {
-        list: document.getElementById('chat-list'),
-        viewport: document.getElementById('chat-viewport'),
-        input: document.getElementById('msg-input'),
-        btn: document.getElementById('send-btn'),
-        dot: document.getElementById('status-dot'),
-        text: document.getElementById('status-text'),
-        sidebar: document.getElementById('sidebar'),
-        backdrop: document.getElementById('mobile-backdrop'),
-        menuBtn: document.getElementById('menu-btn'),
-        menuIcon: document.getElementById('menu-icon')
+    dom: {},
+    
+    init: function() {
+        this.dom = {
+            list: document.getElementById('chat-list'),
+            viewport: document.getElementById('chat-viewport'),
+            input: document.getElementById('msg-input'),
+            btn: document.getElementById('send-btn'),
+            dot: document.getElementById('status-dot'),
+            text: document.getElementById('status-text'),
+            sidebar: document.getElementById('sidebar'),
+            backdrop: document.getElementById('mobile-backdrop'),
+            menuBtn: document.getElementById('menu-btn'),
+            menuIcon: document.getElementById('menu-icon'),
+            loader: {
+                overlay: document.getElementById('loader-overlay'),
+                log: document.getElementById('loader-log'),
+                bar: document.getElementById('progress-bar')
+            },
+            navWorkspace: document.getElementById('nav-workspace'),
+            navReset: document.getElementById('nav-reset'),
+            navTheme: document.getElementById('nav-theme'),
+            statusPill: document.getElementById('status-pill'),
+            assistBtn: document.getElementById('assist-btn')
+        };
+
+        // --- CRITICAL: Event Listeners managed here ---
+        
+        // 1. Mobile Menu Button
+        this.dom.menuBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.toggleMobileMenu();
+        });
+
+        // 2. Backdrop (Click to close)
+        this.dom.backdrop.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.closeMobileMenu();
+        });
+
+        // 3. Sidebar Navigation
+        this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
+        this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
+        this.dom.navTheme.addEventListener('click', () => { 
+            document.body.classList.toggle('dark-mode'); 
+            this.closeMobileMenu(); 
+        });
+
+        // 4. Status Pill (Init Engine)
+        this.dom.statusPill.addEventListener('click', () => { 
+            engine.init(); 
+            this.closeMobileMenu(); 
+        });
+
+        // 5. Input & Send Button
+        this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
+        this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
+        this.dom.btn.addEventListener('click', () => app.send());
+        this.dom.assistBtn.addEventListener('click', () => app.assist('universal'));
+
+        this.updateStatus(false);
     },
 
     updateStatus: function(isReady) {
-        const dot = this.dom.dot;
-        const text = this.dom.text;
-        const btn = this.dom.btn;
-
+        const { dot, text, btn } = this.dom;
+        if(!dot) return;
+        
         dot.className = 'status-dot';
-        text.style.color = "";
-
         if (isReady) {
             dot.classList.add('online');
             text.innerText = "System Ready";
             text.style.color = "#10b981";
             btn.disabled = false;
         } else {
-            dot.classList.add('error'); 
             text.innerText = "Offline";
-            text.style.color = "#ef4444";
-            btn.disabled = false;
+            text.style.color = "var(--text-muted)";
+            btn.disabled = false; // Enabled so we can click to trigger warning
         }
     },
 
     toggleMobileMenu: function() {
-        if(!this.dom.sidebar) return;
-        const isOpen = this.dom.sidebar.classList.contains('open');
-        if (isOpen) this.closeMobileMenu();
-        else {
-            this.dom.sidebar.classList.add('open');
-            this.dom.backdrop.classList.add('open');
-            if(this.dom.menuIcon) {
-                this.dom.menuIcon.classList.remove('fa-bars');
-                this.dom.menuIcon.classList.add('fa-xmark');
-            }
+        const { sidebar, backdrop, menuIcon } = this.dom;
+        const isOpen = sidebar.classList.contains('open');
+        if (isOpen) {
+            this.closeMobileMenu();
+        } else {
+            sidebar.classList.add('open');
+            backdrop.classList.add('open');
+            menuIcon.className = "fa-solid fa-xmark";
         }
     },
 
     closeMobileMenu: function() {
-        if(!this.dom.sidebar) return;
-        this.dom.sidebar.classList.remove('open');
-        this.dom.backdrop.classList.remove('open');
-        if(this.dom.menuIcon) {
-            this.dom.menuIcon.classList.remove('fa-xmark');
-            this.dom.menuIcon.classList.add('fa-bars');
-        }
+        const { sidebar, backdrop, menuIcon } = this.dom;
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('open');
+        menuIcon.className = "fa-solid fa-bars";
     },
 
     resize: function(el) {
@@ -281,41 +175,163 @@ const ui = {
         el.style.height = el.scrollHeight + 'px';
     },
 
-    detectCode: function(el) {
-        if (el.value.includes('def ') || el.value.includes('function') || el.value.includes('{') || el.value.includes('import ')) {
-            el.classList.add('code-font');
-        } else {
-            el.classList.remove('code-font');
-        }
-    },
-
     scrollToBottom: function() {
         this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight;
     },
 
-    addMessage: function(role, html, isLoading) {
+    formatText: function(text) {
+        let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+            return `<div class="code-block"><pre><code>${code}</code></pre></div>`;
+        });
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\n/g, '<br>');
+        return html;
+    },
+
+    addMessage: function(role, content, isLoading = false) {
+        const { list } = this.dom;
         const row = document.createElement('div');
-        row.className = 'message-row' + (role === 'user' ? ' user' : '');
         
-        let content = '';
+        row.className = `message-row ${role}`;
+        
         if (role === 'user') {
-            content = '<div class="avatar"><i class="fa-solid fa-user"></i></div><div class="message-content user-bubble">' + html + '</div>';
+            row.innerHTML = `<div class="message-content">${this.formatText(content)}</div>`;
         } else {
-            if (isLoading) {
-                content = '<div class="message-content ai-text"><div class="typing-dots"></div></div>';
-            } else {
-                content = '<div class="message-content ai-text">' + html + '</div>';
-            }
+            const displayContent = isLoading 
+                ? '<div class="typing-dots"></div>' 
+                : this.formatText(content);
+            
+            row.innerHTML = `<div class="message-content">${displayContent}</div>`;
         }
         
-        row.innerHTML = content;
-        this.dom.list.appendChild(row);
+        list.appendChild(row);
         this.scrollToBottom();
         return row.querySelector('.message-content');
+    },
+
+    updateLastMessage: function(content) {
+        const lastMsg = this.dom.list.querySelector('.message-row:last-child .message-content');
+        if(lastMsg) {
+            lastMsg.innerHTML = this.formatText(content);
+            this.scrollToBottom();
+        }
     }
 };
 
-// 4. APP OBJECT
+// --- ENGINE CONTROLLER ---
+const engine = {
+    generator: null,
+    isReady: false,
+
+    init: async function() {
+        const { loader } = ui.dom;
+        loader.overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        loader.log.innerText = '> Initializing System...\n';
+        loader.bar.style.width = '0%';
+
+        try {
+            // 1. SMART FILE CHECK
+            let progress = 0;
+            const totalFiles = FILES_TO_DOWNLOAD.length;
+
+            for (const file of FILES_TO_DOWNLOAD) {
+                ui.updateStatus(false);
+                loader.log.innerText += `> Checking ${file}...\n`;
+                
+                if (await fileExists(file)) {
+                    loader.log.innerText += `> Found in storage. Verifying...\n`;
+                    try { 
+                        await loadFileToMemory(file); 
+                        loader.log.innerText += `> Verified.\n`;
+                    } catch (e) { 
+                        // If corrupted, download again
+                        loader.log.innerText += `> File corrupted. Re-downloading...\n`;
+                        await downloadAndSave(file, (loaded, size) => {
+                            const percent = ((progress + loaded/size) / totalFiles) * 80;
+                            loader.bar.style.width = percent + '%';
+                        });
+                    }
+                } else {
+                    // If missing, download
+                    loader.log.innerText += `> Not found. Downloading...\n`;
+                    await downloadAndSave(file, (loaded, size) => {
+                        const percent = ((progress + loaded/size) / totalFiles) * 80;
+                        loader.bar.style.width = percent + '%';
+                    });
+                }
+                progress++;
+                loader.bar.style.width = (progress / totalFiles) * 80 + '%';
+            }
+
+            loader.log.innerText += '> All files ready. Loading model...\n';
+            
+            // 2. LOAD MODEL
+            const ggufBuffer = await loadFileToMemory(FILES_TO_DOWNLOAD[0]);
+            const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
+            const modelUrl = URL.createObjectURL(modelBlob);
+
+            env.useBrowserCache = false; 
+            env.allowLocalModels = false;
+
+            try {
+                this.generator = await pipeline('text-generation', modelUrl, {
+                    quantized: true,
+                    dtype: 'q4',
+                });
+                loader.log.innerText += '> Model loaded successfully.\n';
+            } catch (err) {
+                console.warn("Model load failed:", err);
+                loader.log.innerText += `> Model load failed (Security). Switching to Simulation.\n`;
+                this.generator = null; 
+            }
+
+            loader.bar.style.width = '100%';
+            this.isReady = true;
+            ui.updateStatus(true);
+            
+            setTimeout(() => {
+                loader.overlay.classList.remove('active');
+                document.body.style.overflow = '';
+                ui.addMessage('eor', 'System Online. Ready for input.');
+            }, 500);
+
+        } catch (error) {
+            console.error(error);
+            loader.log.innerText += `\n> CRITICAL ERROR: ${error.message}\n`;
+            loader.bar.style.width = '0%';
+            document.body.style.overflow = '';
+            ui.updateStatus(false);
+        }
+    },
+
+    generate: async function(prompt) {
+        if (!this.isReady) return ui.addMessage('eor', "System is not ready.");
+
+        ui.addMessage('eor', '', true); 
+
+        if (this.generator) {
+            try {
+                const output = await this.generator(prompt, {
+                    max_new_tokens: 150,
+                    do_sample: true,
+                    temperature: 0.7,
+                });
+                ui.updateLastMessage(output[0].generated_text);
+            } catch (err) {
+                ui.updateLastMessage(`Error: ${err.message}`);
+            }
+        } else {
+            await new Promise(r => setTimeout(r, 1200));
+            const simulated = `**[Simulation Mode]**\n\nReceived: "${prompt}"\n\nThe AI engine is disabled in this environment. Ensure you are running on a local server (http://localhost) with SharedArrayBuffer support.`;
+            ui.updateLastMessage(simulated);
+        }
+    }
+};
+
+// --- APP LOGIC ---
 const app = {
     handleEnter(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -327,30 +343,30 @@ const app = {
     reset: function() {
         ui.dom.list.innerHTML = '';
         engine.history = []; 
-        ui.addMessage('ai', "System reset.");
+        ui.addMessage('eor', "System reset.");
     },
 
     send: async function() {
+        const text = ui.dom.input.value.trim();
+        if (!text) return;
+
         if (!engine.isReady) {
             const confirmInit = confirm("System Offline. Load Model?");
             if(confirmInit) engine.init();
             return;
         }
 
-        const text = ui.dom.input.value.trim();
-        if (!text) return;
-
         ui.dom.input.value = '';
-        ui.dom.input.classList.remove('code-font');
         ui.dom.input.style.height = 'auto';
+        ui.resize(ui.dom.input);
         
-        ui.addMessage('user', text.replace(/\n/g, '<br>'));
-        engine.addToHistory('user', text);
+        ui.addMessage('user', text);
 
         ui.dom.btn.disabled = true;
-        ui.addMessage('ai', '', true);
+        await engine.generate(text);
+        ui.dom.btn.disabled = false;
         
-        await engine.generate(text, 'chat');
+        ui.dom.input.focus();
     },
 
     assist: async function(mode) {
@@ -363,48 +379,19 @@ const app = {
         const text = ui.dom.input.value.trim();
         if (!text) return;
 
-        const originalPlaceholder = ui.dom.input.placeholder;
-        ui.dom.input.placeholder = "Processing...";
-        ui.dom.input.disabled = true;
-
-        await engine.generate(text, mode);
-
-        this.currentAssistMode = mode;
-        this.originalInput = text;
-        this.originalPlaceholder = originalPlaceholder;
-    },
-
-    handleStream: function(text) {
-        const messages = document.querySelectorAll('.ai-text');
-        const lastMsg = messages[messages.length - 1];
-        if(lastMsg) {
-            if(lastMsg.querySelector('.typing-dots')) {
-                lastMsg.innerHTML = '';
-            }
-            lastMsg.innerHTML = text.replace(/\n/g, '<br>');
-            ui.scrollToBottom();
-        }
-    },
-
-    handleResponse: function(data, mode) {
-        ui.dom.btn.disabled = false;
-        ui.dom.input.focus();
+        ui.addMessage('user', `[Assist] ${text}`);
+        ui.dom.input.value = '';
         
-        if (mode !== 'chat') {
-            let cleanData = data.replace(/```[\w]*\n?/g, '').replace(/```/g, '');
-            ui.dom.input.value = cleanData;
-            ui.dom.input.disabled = false;
-            ui.dom.input.placeholder = "Type anything here...";
-            ui.resize(ui.dom.input); 
-            ui.detectCode(ui.dom.input);
-        }
+        ui.dom.btn.disabled = true;
+        await engine.generate(text);
+        ui.dom.btn.disabled = false;
     }
 };
 
-// CRITICAL: Attach to window for buttons
-window.engine = engine;
-window.app = app;
-window.ui = ui;
-
-ui.updateStatus(false);
-console.log("System Boot. Objects attached to Window.");
+// Initialize on Load
+window.addEventListener('DOMContentLoaded', () => {
+    ui.init();
+    window.ui = ui;
+    window.app = app;
+    window.engine = engine;
+});
