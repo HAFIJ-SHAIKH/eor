@@ -33,7 +33,6 @@
             </div>
             
             <nav class="sidebar-nav">
-                <!-- No onclick here, handled by JS -->
                 <button class="nav-item active" id="nav-workspace">Workspace</button>
                 <button class="nav-item" id="nav-reset">New Session</button>
                 <button class="nav-item" id="nav-theme">
@@ -73,7 +72,7 @@
                 </div>
                 <div class="input-dock">
                     <textarea id="msg-input" rows="1" placeholder="Type anything here..."></textarea>
-                    <!-- Send button ID for JS listener -->
+                    <!-- Removed 'disabled' so button works immediately for testing -->
                     <button id="send-btn" class="send-btn" aria-label="Send Message">
                         <i class="fa-solid fa-arrow-up"></i>
                     </button>
@@ -92,7 +91,6 @@
         <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
-    <!-- Module script -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
