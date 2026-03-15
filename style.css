@@ -144,6 +144,18 @@ body {
 .welcome-banner h2 { margin-bottom: 10px; color: var(--text-dark); }
 .welcome-banner p { color: var(--text-gray); line-height: 1.6; }
 
+.message-content pre {
+    background: var(--code-bg); color: var(--code-text);
+    padding: 16px; border-radius: 8px; overflow-x: auto;
+    margin: 10px 0; font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem; white-space: pre-wrap;
+}
+.message-content code {
+    font-family: 'JetBrains Mono', monospace;
+    background: rgba(136, 71, 255, 0.1); padding: 2px 4px;
+    border-radius: 4px; font-size: 0.85em; color: #a855f7;
+}
+
 /* Input Dock */
 .input-dock-wrapper {
     position: fixed; bottom: 0; left: 0; width: 100%;
@@ -213,6 +225,22 @@ textarea:focus { outline: none; }
     white-space: pre-wrap;
 }
 
+/* Shifter Animation */
+.loader-shifter {
+    width: 30px;
+    height: 30px;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    animation: shifter-anim 4s infinite cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    margin: 5px 0;
+}
+@keyframes shifter-anim {
+    0% { border-radius: 50%; transform: rotate(0deg); }
+    25% { border-radius: 30%; transform: rotate(90deg); }
+    50% { border-radius: 10%; transform: rotate(180deg); }
+    75% { border-radius: 30%; transform: rotate(270deg); }
+    100% { border-radius: 50%; transform: rotate(360deg); }
+}
+
 /* Responsive */
 @media (max-width: 768px) { 
     .mobile-menu-btn { display: flex; }
@@ -222,22 +250,4 @@ textarea:focus { outline: none; }
 }
 @media (min-width: 769px) {
     .input-dock-wrapper { bottom: 40px; width: calc(100% - 280px); left: auto; right: 0; background: transparent; padding-bottom: 0; }
-}
-/* Add this to the bottom of style.css */
-
-/* --- The Shifter Loader Animation --- */
-.loader-shifter {
-    width: 30px;
-    height: 30px;
-    background: linear-gradient(135deg, #6366f1, #a855f7);
-    animation: shifter-anim 4s infinite cubic-bezier(0.68, -0.55, 0.265, 1.55);
-    margin: 5px 0;
-}
-
-@keyframes shifter-anim {
-    0% { border-radius: 50%; transform: rotate(0deg); }
-    25% { border-radius: 30%; transform: rotate(90deg); }
-    50% { border-radius: 10%; transform: rotate(180deg); }
-    75% { border-radius: 30%; transform: rotate(270deg); }
-    100% { border-radius: 50%; transform: rotate(360deg); }
 }
