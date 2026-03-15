@@ -1,8 +1,5 @@
-/**
- * WORKER SOURCE CODE
- */
+// 1. WORKER CODE STRING
 const WORKER_CODE = `
-    // CONFIGURATION
     const HF_USERNAME = "eorchat";
     const REPO_NAME = "eor";
     const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
@@ -25,27 +22,21 @@ const WORKER_CODE = `
         const dm = decimals < 0 ? 0 : decimals;
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return \`\${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} \${sizes[i]}\`;
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
     async function downloadFile(filename, index, totalFiles) {
         const url = HF_BASE_URL + filename;
         
-        // Log Start
         self.postMessage({ 
             status: 'initiate', 
-            data: { 
-                name: filename, 
-                current: index + 1, 
-                total: totalFiles 
-            } 
+            data: { name: filename, current: index + 1, total: totalFiles } 
         });
 
         try {
             const response = await fetch(url);
-            
             if (!response.ok) {
-                throw new Error(\`HTTP \${response.status}\`);
+                throw new Error("HTTP " + response.status);
             }
 
             const contentLength = response.headers.get('Content-Length');
@@ -57,24 +48,18 @@ const WORKER_CODE = `
 
             while(true) {
                 const { done, value } = await reader.read();
-                
                 if (done) break;
-
                 chunks.push(value);
                 loaded += value.length;
 
-                // CALCULATE GLOBAL PROGRESS
-                // Formula: (Files Completed / Total Files) + (Current File Progress / Total Files)
                 if (total) {
                     const filePercent = loaded / total;
                     const basePercent = index / totalFiles;
                     const globalPercent = Math.floor((basePercent + (filePercent / totalFiles)) * 100);
-                    
                     self.postMessage({ status: 'progress', progress: globalPercent });
                 }
             }
 
-            // Combine chunks
             const buffer = new Uint8Array(loaded);
             let position = 0;
             for(const chunk of chunks) {
@@ -83,21 +68,13 @@ const WORKER_CODE = `
             }
 
             modelBuffers[filename] = buffer;
-            
-            // Log Complete
             self.postMessage({ 
                 status: 'file_complete', 
-                data: { 
-                    name: filename, 
-                    size: formatBytes(loaded),
-                    current: index + 1,
-                    total: totalFiles
-                } 
+                data: { name: filename, size: formatBytes(loaded) } 
             });
 
         } catch (err) {
-            // Stop everything if one file fails
-            self.postMessage({ status: 'error', data: \`Failed to download \${filename}: \${err.message}\` });
+            self.postMessage({ status: 'error', data: "Failed to download " + filename + ": " + err.message });
             throw err; 
         }
     }
@@ -106,14 +83,12 @@ const WORKER_CODE = `
         if (e.data.type === 'load') {
             try {
                 const totalFiles = FILES_TO_DOWNLOAD.length;
-                self.postMessage({ status: 'log', data: \`Starting batch download of \${totalFiles} files...\` });
+                self.postMessage({ status: 'log', data: "Starting batch download of " + totalFiles + " files..." });
                 
-                // Sequential Download Loop
                 for (let i = 0; i < totalFiles; i++) {
                     await downloadFile(FILES_TO_DOWNLOAD[i], i, totalFiles);
                 }
                 
-                // Only reach here if ALL files are successful
                 self.postMessage({ status: 'ready', count: totalFiles });
                 
             } catch (error) {
@@ -121,7 +96,6 @@ const WORKER_CODE = `
             }
         } 
         else if (e.data.type === 'generate') {
-            // Placeholder
             setTimeout(() => {
                 self.postMessage({ 
                     status: 'complete', 
@@ -133,19 +107,27 @@ const WORKER_CODE = `
     };
 `;
 
+// 2. ENGINE OBJECT
 const engine = {
     worker: null,
     isReady: false,
     history: [],
 
     init: function() {
-        if (this.isReady) return;
+        // DEBUG ALERT 1
+        alert("Button Clicked! Function started.");
+        
+        if (this.isReady) {
+            alert("Already Ready");
+            return;
+        }
         
         const log = document.getElementById('loader-log');
         const bar = document.getElementById('progress-bar');
         const overlay = document.getElementById('loader-overlay');
 
         if(!log || !bar || !overlay) {
+            alert("ERROR: Cannot find DOM elements (Check HTML IDs)");
             console.error("Loader DOM elements not found!");
             return;
         }
@@ -158,45 +140,41 @@ const engine = {
             const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
             this.worker = new Worker(URL.createObjectURL(blob));
         } catch (e) {
-            console.error("Worker creation failed", e);
+            alert("Error creating Worker: " + e.message);
             return;
         }
 
         this.worker.onerror = (e) => {
-            log.innerHTML += \`<span style="color:red">> Worker Internal Error: \${e.message}</span><br>\`;
+            log.innerHTML += '<span style="color:red">> Worker Internal Error</span><br>';
         };
 
         this.worker.onmessage = (e) => {
             const { status, data, progress } = e.data;
 
             if (status === 'log') {
-                log.innerHTML += \`> \${data}<br>\`;
+                log.innerHTML += '> ' + data + '<br>';
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'initiate') {
-                // Shows "Downloading [1/7]: filename.gguf"
-                log.innerHTML += \`> Downloading [\${data.current}/\${data.total}]: \${data.name}<br>\`;
+                log.innerHTML += '> Downloading [' + data.current + '/' + data.total + ']: ' + data.name + '<br>';
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'progress') {
-                // Smooth global progress 0-100%
-                bar.style.width = \`\${progress}%\`;
+                bar.style.width = progress + '%';
             }
             else if (status === 'file_complete') {
-                log.innerHTML += \`> Finished [\${data.current}/\${data.total}]: \${data.name} (\${data.size})<br>\`;
+                log.innerHTML += '> Finished: ' + data.name + ' (' + data.size + ')<br>';
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
                 ui.updateStatus(true);
-                ui.addMessage('ai', \`Engine Ready. <strong>\${data.count}</strong> files completely downloaded.\`);
+                ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files completely downloaded.');
             }
             else if (status === 'error') {
-                log.innerHTML += \`<div style="color:#b91c1c; background:#fee2e2; padding:5px; margin-top:5px; border:1px solid #fca5a5; border-radius:4px;">> CRITICAL ERROR: \${data}</div><br>\`;
+                log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
                 log.scrollTop = log.scrollHeight;
-                // Ensure status stays offline
-                ui.updateStatus(false);
             }
             else if (status === 'complete') {
                 app.handleResponse(data, e.data.mode);
@@ -206,7 +184,7 @@ const engine = {
         this.worker.postMessage({ type: 'load' });
     },
 
-    generate: function(text, mode = 'chat') {
+    generate: function(text, mode) {
         if (!this.worker) return;
         this.worker.postMessage({ type: 'generate', text: text, history: this.history, mode: mode });
     },
@@ -217,6 +195,7 @@ const engine = {
     }
 };
 
+// 3. UI OBJECT
 const ui = {
     dom: {
         list: document.getElementById('chat-list'),
@@ -265,29 +244,18 @@ const ui = {
         this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight;
     },
 
-    addMessage: function(role, html, isLoading = false) {
+    addMessage: function(role, html, isLoading) {
         const row = document.createElement('div');
-        row.className = \`message-row\`;
+        row.className = 'message-row';
         
         let content = '';
         if (role === 'user') {
-            content = \`
-                <div class="avatar"><i class="fa-solid fa-user"></i></div>
-                <div class="message-content user-bubble">\${html}</div>
-            \`;
+            content = '<div class="avatar"><i class="fa-solid fa-user"></i></div><div class="message-content user-bubble">' + html + '</div>';
         } else {
             if (isLoading) {
-                content = \`
-                    <div class="avatar"><i class="fa-solid fa-robot"></i></div>
-                    <div class="message-content ai-text">
-                        <div class="typing-dots"></div>
-                    </div>
-                \`;
+                content = '<div class="avatar"><i class="fa-solid fa-robot"></i></div><div class="message-content ai-text"><div class="typing-dots"></div></div>';
             } else {
-                content = \`
-                    <div class="avatar"><i class="fa-solid fa-robot"></i></div>
-                    <div class="message-content ai-text">\${html}</div>
-                \`;
+                content = '<div class="avatar"><i class="fa-solid fa-robot"></i></div><div class="message-content ai-text">' + html + '</div>';
             }
         }
         
@@ -298,6 +266,7 @@ const ui = {
     }
 };
 
+// 4. APP OBJECT
 const app = {
     handleEnter(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -386,12 +355,12 @@ const app = {
     }
 };
 
-// Initialize
-window.onload = () => {
-    ui.updateStatus(false);
-    
-    // Expose to window
-    window.engine = engine;
-    window.app = app;
-    window.ui = ui;
-};
+// 5. GLOBAL ATTACHMENT (CRITICAL FIX)
+// Do NOT wait for window.onload. Attach immediately so buttons work.
+console.log("Script Loaded. Attaching to window...");
+window.engine = engine;
+window.app = app;
+window.ui = ui;
+
+// Initialize UI state
+ui.updateStatus(false);
