@@ -1,7 +1,5 @@
 /**
  * WORKER SOURCE CODE
- * This string contains the code that runs in the Web Worker.
- * It handles fetching files from Hugging Face and managing the download progress.
  */
 const WORKER_CODE = `
     // CONFIGURATION
@@ -13,14 +11,12 @@ const WORKER_CODE = `
     // If your file is named 'Q4_K_M.gguf' instead of 'model.gguf', change it here.
     const FILES_TO_DOWNLOAD = [
         "model.gguf", 
-        // "tokenizer.json", // Add other files if needed
+        // "tokenizer.json", 
         // "preprocessor_config.json"
     ];
 
-    // STORAGE (In-memory for this session)
     let modelBuffers = {}; 
 
-    // Helper: Format bytes
     function formatBytes(bytes, decimals = 2) {
         if (!+bytes) return '0 Bytes';
         const k = 1024;
@@ -30,7 +26,6 @@ const WORKER_CODE = `
         return \`\${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} \${sizes[i]}\`;
     }
 
-    // Main Download Function
     async function downloadFile(filename) {
         const url = HF_BASE_URL + filename;
         
@@ -66,16 +61,14 @@ const WORKER_CODE = `
                         filename: filename 
                     });
                 } else {
-                    // Fallback if Content-Length is missing (Chunked transfer)
                     self.postMessage({ 
                         status: 'progress', 
-                        progress: -1, // -1 indicates indeterminate
+                        progress: -1, 
                         filename: filename 
                     });
                 }
             }
 
-            // Combine chunks into a single buffer
             const buffer = new Uint8Array(loaded);
             let position = 0;
             for(const chunk of chunks) {
@@ -88,11 +81,10 @@ const WORKER_CODE = `
 
         } catch (err) {
             self.postMessage({ status: 'error', data: \`Failed to download \${filename}: \${err.message}\` });
-            throw err; // Stop execution
+            throw err; 
         }
     }
 
-    // Worker Message Handler
     self.onmessage = async (e) => {
         if (e.data.type === 'load') {
             try {
@@ -100,19 +92,15 @@ const WORKER_CODE = `
                     await downloadFile(file);
                 }
                 
-                // All files downloaded successfully
                 self.postMessage({ status: 'ready', count: FILES_TO_DOWNLOAD.length });
                 
-                // TODO: Initialize the actual GGUF inference engine here using modelBuffers
-                // e.g., await createGGUFModule(modelBuffers['model.gguf']);
-
+                // TODO: Initialize GGUF logic here
+                
             } catch (error) {
-                // Error already posted in downloadFile
+                console.error(error);
             }
         } 
         else if (e.data.type === 'generate') {
-            // TODO: Handle generation logic here
-            // For now, simulating a response since we don't have the actual WASM runner
             setTimeout(() => {
                 self.postMessage({ 
                     status: 'complete', 
@@ -124,10 +112,6 @@ const WORKER_CODE = `
     };
 `;
 
-/**
- * MAIN THREAD CONTROLLERS
- */
-
 const engine = {
     worker: null,
     isReady: false,
@@ -136,15 +120,20 @@ const engine = {
     init: function() {
         if (this.isReady) return;
         
+        // Safety check for DOM elements
         const log = document.getElementById('loader-log');
         const bar = document.getElementById('progress-bar');
         const overlay = document.getElementById('loader-overlay');
+
+        if(!log || !bar || !overlay) {
+            console.error("Loader DOM elements not found!");
+            return;
+        }
         
         overlay.classList.add('active');
         log.innerHTML = '> Connecting to Hugging Face...';
         bar.style.width = '0%';
 
-        // Create Worker from the string constant above
         const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
         this.worker = new Worker(URL.createObjectURL(blob));
 
@@ -158,8 +147,6 @@ const engine = {
             else if (status === 'progress') {
                 if (progress !== -1) {
                     bar.style.width = \`\${progress}%\`;
-                } else {
-                    // Indeterminate state animation could go here
                 }
             }
             else if (status === 'file_complete') {
@@ -183,7 +170,6 @@ const engine = {
             }
         };
 
-        // Start the download process
         this.worker.postMessage({ type: 'load' });
     },
 
@@ -198,9 +184,6 @@ const engine = {
     }
 };
 
-/**
- * UI CONTROLLER
- */
 const ui = {
     dom: {
         list: document.getElementById('chat-list'),
@@ -282,9 +265,6 @@ const ui = {
     }
 };
 
-/**
- * APP LOGIC
- */
 const app = {
     handleEnter(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -357,7 +337,6 @@ const app = {
             ui.dom.input.focus();
         } 
         else {
-            // UNIVERSAL/ASSIST MODE (In-Place Update)
             cleanData = cleanData.replace(/```[\w]*\n?/g, '').replace(/```/g, '');
 
             ui.dom.input.value = cleanData;
@@ -371,4 +350,11 @@ const app = {
 };
 
 // Initialize
-window.onload = () => ui.updateStatus(false);
+window.onload = () => {
+    ui.updateStatus(false);
+    
+    // CRITICAL FIX: Expose objects to window so HTML onclick attributes work
+    window.engine = engine;
+    window.app = app;
+    window.ui = ui;
+};
