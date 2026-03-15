@@ -1,7 +1,7 @@
 :root {
     /* --- 1. VARIABLES --- */
     --bg-body: #f8fafc;
-    --bg-glass: rgba(255, 255, 255, 0.9);
+    --bg-glass: rgba(255, 255, 255, 0.95); /* Increased opacity for mobile readability */
     --bg-card: #ffffff;
     
     --text-dark: #1e293b;
@@ -29,7 +29,7 @@ body {
     color: var(--text-dark);
     font-family: var(--font-body);
     height: 100vh;
-    overflow: hidden;
+    overflow: hidden; /* Prevents body scroll, handles inside containers */
     display: flex;
     position: relative;
 }
@@ -60,6 +60,7 @@ body {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    transition: transform 0.3s ease-in-out; /* Smooth slide for mobile */
 }
 
 .brand {
@@ -110,6 +111,31 @@ body {
 .status-dot.online { background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
 .status-dot.error { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
 .status-text { font-size: 0.8rem; font-weight: 600; }
+
+/* Mobile Menu Toggle Button (Hidden on Desktop) */
+.mobile-menu-btn {
+    display: none;
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 20;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+/* Mobile Backdrop (Dimmer) */
+.mobile-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 90; /* Below sidebar (100) */
+    backdrop-filter: blur(2px);
+}
 
 /* Main Chat */
 .main-content { flex: 1; display: flex; flex-direction: column; position: relative; }
@@ -298,17 +324,17 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 
 /* --- 7. OVERLAYS --- */
 .loader-overlay {
-    position: fixed; /* Changed to fixed to cover full screen */
+    position: fixed; 
     inset: 0; 
-    background: rgba(255,255,255,0.95); 
-    z-index: 100; /* Higher z-index */
+    background: rgba(255,255,255,0.98); 
+    z-index: 200; /* Above Sidebar */
     display: none; 
     flex-direction: column; 
     align-items: center; 
     justify-content: center; 
-    padding: 40px; 
+    padding: 20px; 
     text-align: center; 
-    backdrop-filter: blur(5px);
+    backdrop-filter: blur(10px);
 }
 
 .loader-overlay.active { display: flex; }
@@ -334,7 +360,7 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 
 .log-text { 
     font-family: monospace; 
-    font-size: 0.8rem; 
+    font-size: 0.75rem; 
     color: var(--text-gray); 
     height: 100px; 
     overflow-y: auto; 
@@ -351,9 +377,40 @@ textarea.code-font { font-family: var(--font-code); font-size: 0.9rem; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
-/* Responsive */
+/* --- MOBILE RESPONSIVE --- */
 @media (max-width: 768px) { 
-    .sidebar { display: none; } 
-    .chat-container { max-width: 95%; } 
-    .input-dock-wrapper { width: 95%; } 
+    .mobile-menu-btn {
+        display: flex; /* Show hamburger */
+        align-items: center;
+        justify-content: center;
+    }
+
+    .sidebar {
+        position: fixed;
+        left: -280px; /* Hide off-screen */
+        top: 0;
+        bottom: 0;
+        z-index: 100;
+        box-shadow: 5px 0 15px rgba(0,0,0,0.1);
+    }
+
+    .sidebar.open {
+        left: 0; /* Slide in */
+    }
+
+    .mobile-backdrop.open {
+        display: block; /* Show dimmer */
+    }
+
+    .chat-container { 
+        max-width: 95%; 
+        padding-bottom: 140px; /* Adjust for mobile keyboard/toolbar */
+    } 
+    .input-dock-wrapper { 
+        width: 95%; 
+        bottom: 20px;
+    }
+    
+    /* On mobile, shift input dock slightly left to avoid thumb occlusion if needed, 
+       but centering is usually fine for landscape. Portrait center is standard. */
 }
