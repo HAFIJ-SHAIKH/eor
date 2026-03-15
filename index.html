@@ -7,15 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
-    
-    <!-- Load the AI Inference Library (Transformers.js) -->
-    <script type="module">
-        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
-        
-        // Allow the worker to access the library if needed, 
-        // or we will import it directly inside the worker (recommended).
-        window.TransormersLib = { pipeline, env };
-    </script>
 </head>
 <body>
 
@@ -59,7 +50,7 @@
                             <h2 style="margin-bottom: 10px; color: var(--text-dark);">Welcome to <strong>EOR Workspace</strong></h2>
                             <p style="color: var(--text-gray); line-height: 1.6;">
                                 System Ready. Files will be stored in <strong>eor_storage</strong>.<br>
-                                • Initializing Local AI...<br>
+                                • Initializing Local AI (Qwen 2.5)...<br>
                                 • Type a message to start.
                             </p>
                         </div>
@@ -94,9 +85,7 @@
         <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
-    <div id="download-area" style="display:none;"></div>
-
-    <!-- Main Script -->
+    <!-- MAIN SCRIPT (MODULE TYPE) -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
