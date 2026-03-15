@@ -93,49 +93,26 @@ const ui = {
             navWorkspace: document.getElementById('nav-workspace'),
             navReset: document.getElementById('nav-reset'),
             navTheme: document.getElementById('nav-theme'),
-            statusPill: document.getElementById('status-pill'),
-            assistBtn: document.getElementById('assist-btn')
+            statusPill: document.getElementById('status-pill')
         };
 
-        // --- FIX: All Event Listeners Here ---
-        
-        // 1. Mobile Menu Button
+        // Event Listeners
         this.dom.menuBtn.addEventListener('click', (e) => {
-            e.preventDefault();
             e.stopPropagation();
             this.toggleMobileMenu();
         });
 
-        // 2. Backdrop (Click to close)
-        this.dom.backdrop.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.closeMobileMenu();
-        });
+        this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
 
-        // 3. Sidebar Navigation
         this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
         this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
         this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
-
-        // 4. Status Pill (Init Engine)
         this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
 
-        // 5. Input & Send Button
         this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
         this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
-        
-        // Fix: Send button listener
-        this.dom.btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            app.send();
-        });
+        this.dom.btn.addEventListener('click', () => app.send());
 
-        this.dom.assistBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            app.assist('universal');
-        });
-
-        // Initialize status
         this.updateStatus(false);
     },
 
@@ -152,7 +129,6 @@ const ui = {
         } else {
             text.innerText = "Offline";
             text.style.color = "var(--text-muted)";
-            // Fix: Ensure button is not disabled so we can click it to trigger warning
             btn.disabled = false; 
         }
     },
@@ -160,9 +136,8 @@ const ui = {
     toggleMobileMenu: function() {
         const { sidebar, backdrop, menuIcon } = this.dom;
         const isOpen = sidebar.classList.contains('open');
-        if (isOpen) {
-            this.closeMobileMenu();
-        } else {
+        if (isOpen) this.closeMobileMenu();
+        else {
             sidebar.classList.add('open');
             backdrop.classList.add('open');
             menuIcon.className = "fa-solid fa-xmark";
@@ -181,15 +156,11 @@ const ui = {
         el.style.height = el.scrollHeight + 'px';
     },
 
-    scrollToBottom: function() {
-        this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight;
-    },
+    scrollToBottom: function() { this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight; },
 
     formatText: function(text) {
         let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-            return `<div class="code-block"><pre><code>${code}</code></pre></div>`;
-        });
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (m, l, c) => `<pre><code>${c}</code></pre>`);
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\n/g, '<br>');
@@ -199,30 +170,16 @@ const ui = {
     addMessage: function(role, content, isLoading = false) {
         const { list } = this.dom;
         const row = document.createElement('div');
-        
         row.className = `message-row ${role}`;
-        
-        if (role === 'user') {
-            row.innerHTML = `<div class="message-content">${this.formatText(content)}</div>`;
-        } else {
-            const displayContent = isLoading 
-                ? '<div class="typing-dots"></div>' 
-                : this.formatText(content);
-            
-            row.innerHTML = `<div class="message-content">${displayContent}</div>`;
-        }
-        
+        if (role === 'user') row.innerHTML = `<div class="message-content">${this.formatText(content)}</div>`;
+        else row.innerHTML = `<div class="message-content">${isLoading ? '<div class="typing-dots"></div>' : this.formatText(content)}</div>`;
         list.appendChild(row);
         this.scrollToBottom();
-        return row.querySelector('.message-content');
     },
 
     updateLastMessage: function(content) {
         const lastMsg = this.dom.list.querySelector('.message-row:last-child .message-content');
-        if(lastMsg) {
-            lastMsg.innerHTML = this.formatText(content);
-            this.scrollToBottom();
-        }
+        if(lastMsg) { lastMsg.innerHTML = this.formatText(content); this.scrollToBottom(); }
     }
 };
 
@@ -235,9 +192,109 @@ const engine = {
         const { loader } = ui.dom;
         loader.overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
-        loader.log.innerText = '> Initializing System...\n';
+        loader.log.innerText = '> System Init...\n';
         loader.bar.style.width = '0%';
 
         try {
-            // SECURITY CHECK: Detect file protocol
-            if (window
+            // 1. DOWNLOAD/CHECK FILES
+            let progress = 0;
+            const totalFiles = FILES_TO_DOWNLOAD.length;
+            for (const file of FILES_TO_DOWNLOAD) {
+                loader.log.innerText += `> Checking ${file}...\n`;
+                if (await fileExists(file)) {
+                    try { await loadFileToMemory(file); loader.log.innerText += `> Found.\n`; } 
+                    catch (e) {
+                        loader.log.innerText += `> Re-downloading...\n`;
+                        await downloadAndSave(file, (l, s) => loader.bar.style.width = ((progress + l/s) / totalFiles * 80) + '%');
+                    }
+                } else {
+                    loader.log.innerText += `> Downloading... (Wait)\n`;
+                    await downloadAndSave(file, (l, s) => loader.bar.style.width = ((progress + l/s) / totalFiles * 80) + '%');
+                }
+                progress++;
+                loader.bar.style.width = (progress / totalFiles) * 80 + '%';
+            }
+
+            // 2. LOAD MODEL
+            loader.log.innerText += '> Loading AI Engine...\n';
+            const ggufBuffer = await loadFileToMemory(FILES_TO_DOWNLOAD[0]);
+            const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
+            const modelUrl = URL.createObjectURL(modelBlob);
+
+            env.useBrowserCache = false; 
+            env.allowLocalModels = false;
+
+            this.generator = await pipeline('text-generation', modelUrl, {
+                quantized: true,
+                dtype: 'q4',
+                // This helps show progress inside the model loading phase
+                progress_callback: (data) => {
+                    if(data.status === 'loading') loader.log.innerText = `> Loading: ${data.file} ${Math.round(data.progress || 0)}%`;
+                }
+            });
+
+            loader.log.innerText += '> Model Loaded!\n';
+            loader.bar.style.width = '100%';
+            this.isReady = true;
+            ui.updateStatus(true);
+            
+            setTimeout(() => {
+                loader.overlay.classList.remove('active');
+                document.body.style.overflow = '';
+                ui.addMessage('eor', 'AI Online. Model loaded successfully.');
+            }, 500);
+
+        } catch (error) {
+            console.error(error);
+            loader.log.innerHTML += `\n<span style="color:red">> ERROR: ${error.message}</span>\n`;
+            loader.bar.style.width = '0%';
+            
+            // If on mobile/github pages, show specific helpful error
+            if (error.message.includes('out of memory') || error.message.includes('memory')) {
+                loader.log.innerHTML += `\n> Memory Limit Reached. Try closing other tabs.\n`;
+            } else if (window.location.protocol === 'https:') {
+                 loader.log.innerHTML += `\n> Secure Context: OK. Connection Issue? Check console.\n`;
+            }
+            
+            document.body.style.overflow = '';
+            ui.updateStatus(false);
+        }
+    },
+
+    generate: async function(prompt) {
+        if (!this.isReady) return ui.addMessage('eor', "System offline.");
+        ui.addMessage('eor', '', true); 
+        try {
+            const output = await this.generator(prompt, { max_new_tokens: 100 });
+            ui.updateLastMessage(output[0].generated_text);
+        } catch (err) {
+            ui.updateLastMessage(`Error: ${err.message}`);
+        }
+    }
+};
+
+// --- APP LOGIC ---
+const app = {
+    handleEnter(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); } },
+    reset() { ui.dom.list.innerHTML = ''; ui.addMessage('eor', "Reset."); },
+    
+    async send() {
+        const text = ui.dom.input.value.trim();
+        if (!text) return;
+        if (!engine.isReady) { if(confirm("Start AI?")) engine.init(); return; }
+
+        ui.dom.input.value = ''; ui.dom.input.style.height = 'auto';
+        ui.addMessage('user', text);
+        ui.dom.btn.disabled = true;
+        await engine.generate(text);
+        ui.dom.btn.disabled = false;
+        ui.dom.input.focus();
+    }
+};
+
+// Init
+window.addEventListener('DOMContentLoaded', () => {
+    ui.init();
+    window.app = app;
+    window.engine = engine;
+});
