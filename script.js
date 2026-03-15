@@ -1,9 +1,8 @@
 console.log("System Boot. Target: eor_storage. Engine: Transformers.js (GGUF).");
 
 // 1. WORKER MODULE CODE (REAL INFERENCE)
-// Note: We import the library from the CDN inside the worker string
 const workerCode = `
-import { pipeline, env, RawImage } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
 
 // Configuration
 const HF_USERNAME = "eorchat";
@@ -16,11 +15,9 @@ const FILES_TO_DOWNLOAD = [
     "config.json",
     "tokenizer.json",
     "tokenizer_config.json"
-    // Adapter files are tricky in basic Transformers.js pipeline, we focus on base model first
 ];
 
 let generator = null;
-let completedCount = 0;
 
 // --- STORAGE SYSTEM ---
 
@@ -49,10 +46,7 @@ async function loadFileToMemory(filename) {
     const handle = await dir.getFileHandle(filename);
     const file = await handle.getFile();
     const buffer = await file.arrayBuffer();
-    self.postMessage({ 
-        status: 'file_loaded', 
-        data: { name: filename, size: formatBytes(file.size) } 
-    });
+    self.postMessage({ status: 'file_loaded', data: { name: filename, size: formatBytes(file.size) } });
     return buffer;
 }
 
@@ -92,32 +86,25 @@ async function initializeAI() {
         const config = JSON.parse(new TextDecoder().decode(configBuffer));
 
         // 2. Load GGUF Model File
-        // Transformers.js can take a URL, so we create a Blob URL from our local file
         const ggufBuffer = await loadFileToMemory("Qwen2.5-1.5B-Instruct.Q4_K_M.gguf");
         const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
         const modelUrl = URL.createObjectURL(modelBlob);
 
         // 3. Initialize Pipeline
-        // We use 'text-generation' and point it to our local blob URL
-        // NOTE: For a perfect match, the tokenizer files must be compatible.
-        // If tokenizer.json fails, Transformers.js falls back to a default if config is correct.
-        
+        // We disable browser cache because we are managing it via OPFS
+        env.useBrowserCache = false; 
+        env.allowLocalModels = false;
+
         generator = await pipeline('text-generation', modelUrl, {
             quantized: true,
-            dtype: 'q4', // Ensure we tell it it's quantized
-            progress_callback: (data) => {
-                // Pipeline internal loading progress
-                if(data.status === 'progress') {
-                     // Could map this to main progress bar if detailed
-                }
-            }
+            dtype: 'q4',
         });
 
         self.postMessage({ status: 'ready', count: FILES_TO_DOWNLOAD.length });
         
     } catch (error) {
         console.error(error);
-        self.postMessage({ status: 'error', data: "AI Init Error: " + error.message + ". Check model compatibility." });
+        self.postMessage({ status: 'error', data: "AI Init Error: " + error.message });
     }
 }
 
@@ -133,7 +120,6 @@ self.onmessage = async (e) => {
             for (const file of FILES_TO_DOWNLOAD) {
                 if (await fileExists(file)) {
                     await loadFileToMemory(file); // Just for reporting
-                    completedCount++;
                 } else {
                     filesToFetch.push(file);
                 }
@@ -157,18 +143,21 @@ self.onmessage = async (e) => {
 
         try {
             const text = e.data.text;
+            
             // Run actual generation
+            // Using standard text generation. For Chat models, usually you format the prompt,
+            // but for a raw GGUF text-gen pipeline, we pass the raw text.
             const output = await generator(text, {
-                max_new_tokens: 128,
+                max_new_tokens: 150,
                 do_sample: true,
                 temperature: 0.7,
                 top_k: 50,
-                return_full_text: false // Don't repeat the prompt
+                return_full_text: false
             });
 
             const generatedText = output[0].generated_text;
             
-            // Stream the result to main thread
+            // Send result
             self.postMessage({ status: 'streaming', data: generatedText });
             self.postMessage({ status: 'complete', data: generatedText });
 
@@ -200,7 +189,7 @@ const engine = {
         bar.style.width = '0%';
 
         try {
-            // CRITICAL: type: 'module' is required for imports to work
+            // IMPORTANT: 'type: module' allows the worker to use 'import'
             const blob = new Blob([workerCode], { type: 'text/javascript' });
             this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
         } catch (e) {
@@ -212,7 +201,9 @@ const engine = {
             log.innerHTML += '<span style="color:red">> Worker Error</span><br>';
         };
 
-        let filesTotal = 4; // GGUF, Config, Tokenizer, Tokenizer_Config
+        let filesTotal = FILES_TO_DOWNLOAD.length; // Define this if accessible or hardcode 4
+        // Since FILES_TO_DOWNLOAD is inside the worker string, we hardcode 4 for progress bar logic
+        const TOTAL_FILES = 4;
         let filesProcessed = 0;
 
         this.worker.onmessage = (e) => {
@@ -227,12 +218,12 @@ const engine = {
             else if (status === 'file_loaded') {
                 log.innerHTML += '<span style="color:green">> Loaded from eor_storage: ' + data.name + '</span><br>';
                 filesProcessed++;
-                bar.style.width = Math.floor((filesProcessed / filesTotal) * 50) + '%'; // First 50% is loading
+                bar.style.width = Math.floor((filesProcessed / TOTAL_FILES) * 50) + '%'; 
             }
             else if (status === 'file_complete') {
                 log.innerHTML += '> Saved to eor_storage: ' + data.name + '<br>';
                 filesProcessed++;
-                bar.style.width = Math.floor((filesProcessed / filesTotal) * 50) + '%';
+                bar.style.width = Math.floor((filesProcessed / TOTAL_FILES) * 50) + '%';
             }
             else if (status === 'ready') {
                 this.isReady = true;
@@ -250,7 +241,7 @@ const engine = {
                 app.handleStream(data);
             }
             else if (status === 'complete') {
-                // Finalize
+                // Done
             }
             
             log.scrollTop = log.scrollHeight;
@@ -454,10 +445,10 @@ const app = {
     }
 };
 
-window.onload = function() {
-    console.log("System Boot.");
-    window.engine = engine;
-    window.app = app;
-    window.ui = ui;
-    ui.updateStatus(false);
-};
+// CRITICAL FIX: Attach to window immediately so HTML buttons work
+window.engine = engine;
+window.app = app;
+window.ui = ui;
+
+ui.updateStatus(false);
+console.log("System Boot. Objects attached to Window.");
