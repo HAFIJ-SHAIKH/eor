@@ -1,10 +1,13 @@
-console.log("Script Loaded Successfully.");
+console.log("Script Loaded. OPFS System Ready.");
 
-// 1. WORKER FUNCTION (PARALLEL DOWNLOADS)
+// 1. WORKER FUNCTION (OPFS STORAGE + PARALLEL DOWNLOADS)
 function workerScript() {
     const HF_USERNAME = "eorchat";
     const REPO_NAME = "eor";
     const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
+    
+    // The folder name in the browser's internal storage
+    const STORAGE_FOLDER = "eor_storage";
     
     const FILES_TO_DOWNLOAD = [
         "Qwen2.5-1.5B-Instruct.Q4_K_M.gguf",
@@ -18,6 +21,13 @@ function workerScript() {
 
     let modelBuffers = {}; 
     let completedCount = 0;
+    let totalFiles = FILES_TO_DOWNLOAD.length;
+
+    // Helper: Access or Create the Folder
+    async function getStorageDir() {
+        const root = await navigator.storage.getDirectory();
+        return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
+    }
 
     function formatBytes(bytes, decimals) {
         if (!+bytes) return '0 Bytes';
@@ -28,16 +38,39 @@ function workerScript() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
-    async function downloadFile(filename) {
+    // Check if file exists locally
+    async function fileExists(filename) {
+        try {
+            const dir = await getStorageDir();
+            await dir.getFileHandle(filename);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Read file from OPFS into Memory
+    async function loadFileToMemory(filename) {
+        try {
+            const dir = await getStorageDir();
+            const handle = await dir.getFileHandle(filename);
+            const file = await handle.getFile();
+            const buffer = await file.arrayBuffer();
+            modelBuffers[filename] = new Uint8Array(buffer);
+            self.postMessage({ status: 'file_loaded', data: { name: filename, size: formatBytes(file.size) }});
+        } catch (e) {
+            console.error("Failed to load file from storage", e);
+            throw e;
+        }
+    }
+
+    // Download and Save to OPFS
+    async function downloadAndSave(filename) {
         const url = HF_BASE_URL + filename;
         
-        self.postMessage({ 
-            status: 'initiate', 
-            data: { name: filename } 
-        });
+        self.postMessage({ status: 'initiate', data: { name: filename } });
 
         const controller = new AbortController();
-        // Increased timeout to 10 mins for larger files
         const timeoutId = setTimeout(() => controller.abort(), 600000); 
 
         try {
@@ -46,23 +79,18 @@ function workerScript() {
 
             if (!response.ok) throw new Error("HTTP " + response.status);
 
-            const contentLength = response.headers.get('Content-Length');
-            const total = parseInt(contentLength, 10);
-            let loaded = 0;
-
             const reader = response.body.getReader();
             const chunks = [];
+            let loaded = 0;
 
             while(true) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 chunks.push(value);
                 loaded += value.length;
-                
-                // For parallel downloads, we just report that something is downloading
-                // The progress bar is updated based on 'file_complete' counts in main thread
             }
 
+            // 1. Combine chunks
             const buffer = new Uint8Array(loaded);
             let position = 0;
             for(const chunk of chunks) {
@@ -70,19 +98,26 @@ function workerScript() {
                 position += chunk.length;
             }
 
+            // 2. Save to OPFS Folder
+            const dir = await getStorageDir();
+            const fileHandle = await dir.getFileHandle(filename, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(buffer);
+            await writable.close();
+
+            // 3. Load into Memory
             modelBuffers[filename] = buffer;
-            
+
             self.postMessage({ 
                 status: 'file_complete', 
-                data: { name: filename, size: formatBytes(loaded) },
-                buffer: buffer.buffer 
-            }, [buffer.buffer]);
+                data: { name: filename, size: formatBytes(loaded) } 
+            });
 
         } catch (err) {
             clearTimeout(timeoutId);
             let msg = err.message;
-            if (err.name === 'AbortError') msg = "Download Timeout (10 mins).";
-            self.postMessage({ status: 'error', data: "Failed to download " + filename + ": " + msg });
+            if (err.name === 'AbortError') msg = "Download Timeout.";
+            self.postMessage({ status: 'error', data: "Failed: " + filename + " - " + msg });
             throw err; 
         }
     }
@@ -90,27 +125,61 @@ function workerScript() {
     self.onmessage = async (e) => {
         if (e.data.type === 'load') {
             try {
-                const totalFiles = FILES_TO_DOWNLOAD.length;
-                self.postMessage({ status: 'log', data: "Starting PARALLEL download of " + totalFiles + " files..." });
+                self.postMessage({ status: 'log', data: "Checking local storage folder: " + STORAGE_FOLDER });
                 
-                // SPEED FIX: Download all files at the same time
-                const promises = FILES_TO_DOWNLOAD.map(f => downloadFile(f));
-                await Promise.all(promises);
+                // Strategy: Check all files first
+                const filesToFetch = [];
                 
+                for (const file of FILES_TO_DOWNLOAD) {
+                    const exists = await fileExists(file);
+                    if (exists) {
+                        self.postMessage({ status: 'log', data: "Found locally: " + file });
+                        await loadFileToMemory(file);
+                        completedCount++;
+                        // Update progress
+                        self.postMessage({ status: 'progress', progress: Math.floor((completedCount / totalFiles) * 100) });
+                    } else {
+                        self.postMessage({ status: 'log', data: "Missing from storage: " + file + ". Will download." });
+                        filesToFetch.push(file);
+                    }
+                }
+
+                // Download missing files in parallel
+                if (filesToFetch.length > 0) {
+                    self.postMessage({ status: 'log', data: `Downloading ${filesToFetch.length} missing files...` });
+                    const promises = filesToFetch.map(f => downloadAndSave(f));
+                    await Promise.all(promises);
+                }
+
                 self.postMessage({ status: 'ready', count: totalFiles });
+
             } catch (error) {
-                self.postMessage({ status: 'log', data: "Download stopped." });
+                self.postMessage({ status: 'log', data: "System Error: " + error.message });
+                self.postMessage({ status: 'error', data: error.message });
             }
         } 
         else if (e.data.type === 'generate') {
-            setTimeout(() => {
-                const input = e.data.text || "";
-                self.postMessage({ 
-                    status: 'complete', 
-                    data: `I received your message: "${input}".\n\n(Note: This is a UI demo. Real AI responses require integrating the GGUF.js inference library.)`, 
-                    mode: e.data.mode 
-                });
-            }, 500);
+            // --- SYSTEM SIMULATION ---
+            // In a real app, you would use modelBuffers["Qwen..."] with llama.cpp here.
+            const input = e.data.text || "";
+            
+            let responseText = "> Processing Input...\n";
+            responseText += "> Tokens: " + input.length + "\n";
+            responseText += "> Context: User Session Active\n";
+            responseText += "> Output: " + input + "\n\n";
+            responseText += "[SYSTEM]: Inference module initialized. The model files (" + Object.keys(modelBuffers).length + ") are loaded in memory. \n";
+            responseText += "[SYSTEM]: To enable actual AI reasoning, the WebAssembly binary (llama_cpp.wasm) must be linked. Currently running in Echo Mode.";
+
+            const tokens = responseText.split(' ');
+            let currentText = "";
+            
+            for (let i = 0; i < tokens.length; i++) {
+                currentText += tokens[i] + " ";
+                self.postMessage({ status: 'streaming', data: currentText, mode: e.data.mode });
+                await new Promise(r => setTimeout(r, 30)); // Fast typing
+            }
+            
+            self.postMessage({ status: 'complete', data: currentText, mode: e.data.mode });
         }
     };
 }
@@ -122,9 +191,6 @@ const engine = {
     history: [],
 
     init: function() {
-        const confirmDownload = confirm("This will download ~1GB of files to your device.\n\nThey will be saved in your 'Downloads' folder.");
-        if (!confirmDownload) return;
-
         if (this.isReady) return;
         
         const log = document.getElementById('loader-log');
@@ -138,7 +204,7 @@ const engine = {
         
         overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
-        log.innerHTML = '> Initializing...';
+        log.innerHTML = '> Initializing OPFS Storage...';
         bar.style.width = '0%';
 
         try {
@@ -154,7 +220,7 @@ const engine = {
         };
 
         this.worker.onmessage = (e) => {
-            const { status, data, buffer } = e.data;
+            const { status, data, progress } = e.data;
 
             if (status === 'log') {
                 log.innerHTML += '> ' + data + '<br>';
@@ -162,48 +228,38 @@ const engine = {
             else if (status === 'initiate') {
                 log.innerHTML += '> Fetching: ' + data.name + '<br>';
             }
+            else if (status === 'file_loaded') {
+                // File found locally
+                log.innerHTML += '<span style="color:blue">> Loaded from Storage: ' + data.name + ' (' + data.size + ')</span><br>';
+            }
             else if (status === 'file_complete') {
-                log.innerHTML += '> Saved: ' + data.name + ' (' + data.size + ')<br>';
-                
-                // PARALLEL PROGRESS LOGIC: Just update based on file completion
-                // We need a counter in the main thread
-                window.filesCompleted = (window.filesCompleted || 0) + 1;
-                const percent = Math.floor((window.filesCompleted / 7) * 100);
-                bar.style.width = percent + '%';
-                
-                if (buffer) {
-                    const blob = new Blob([buffer], { type: 'application/octet-stream' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = data.name;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }
+                // File downloaded and saved
+                log.innerHTML += '> Saved to Storage: ' + data.name + ' (' + data.size + ')<br>';
+            }
+            else if (status === 'progress') {
+                bar.style.width = progress + '%';
             }
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
                 document.body.style.overflow = '';
-                window.filesCompleted = 0; // Reset counter
                 ui.updateStatus(true);
-                ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files saved to memory and disk.');
+                ui.addMessage('ai', '<strong>System Online.</strong> ' + data.count + ' files loaded from local storage.');
             }
             else if (status === 'error') {
                 log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
                 document.body.style.overflow = '';
             }
+            else if (status === 'streaming') {
+                app.handleStream(data);
+            }
             else if (status === 'complete') {
-                app.handleResponse(data, e.data.mode);
+                // Done
             }
             
             log.scrollTop = log.scrollHeight;
         };
 
-        // Reset global counter
-        window.filesCompleted = 0;
         this.worker.postMessage({ type: 'load' });
     },
 
@@ -243,12 +299,12 @@ const ui = {
 
         if (isReady) {
             dot.classList.add('online');
-            text.innerText = "Model Ready";
+            text.innerText = "System Ready";
             text.style.color = "#10b981";
             btn.disabled = false;
         } else {
             dot.classList.add('error'); 
-            text.innerText = "Model Offline";
+            text.innerText = "Offline";
             text.style.color = "#ef4444";
             btn.disabled = false;
         }
@@ -257,13 +313,10 @@ const ui = {
     toggleMobileMenu: function() {
         if(!this.dom.sidebar) return;
         const isOpen = this.dom.sidebar.classList.contains('open');
-        
-        if (isOpen) {
-            this.closeMobileMenu();
-        } else {
+        if (isOpen) this.closeMobileMenu();
+        else {
             this.dom.sidebar.classList.add('open');
             this.dom.backdrop.classList.add('open');
-            // Change Icon to X
             if(this.dom.menuIcon) {
                 this.dom.menuIcon.classList.remove('fa-bars');
                 this.dom.menuIcon.classList.add('fa-xmark');
@@ -275,7 +328,6 @@ const ui = {
         if(!this.dom.sidebar) return;
         this.dom.sidebar.classList.remove('open');
         this.dom.backdrop.classList.remove('open');
-        // Change Icon back to Bars
         if(this.dom.menuIcon) {
             this.dom.menuIcon.classList.remove('fa-xmark');
             this.dom.menuIcon.classList.add('fa-bars');
@@ -308,10 +360,8 @@ const ui = {
             content = '<div class="avatar"><i class="fa-solid fa-user"></i></div><div class="message-content user-bubble">' + html + '</div>';
         } else {
             if (isLoading) {
-                // AI No Avatar
                 content = '<div class="message-content ai-text"><div class="typing-dots"></div></div>';
             } else {
-                // AI No Avatar
                 content = '<div class="message-content ai-text">' + html + '</div>';
             }
         }
@@ -335,12 +385,12 @@ const app = {
     reset: function() {
         ui.dom.list.innerHTML = '';
         engine.history = []; 
-        ui.addMessage('ai', "Session cleared.");
+        ui.addMessage('ai', "System reset.");
     },
 
     send: function() {
         if (!engine.isReady) {
-            const confirmInit = confirm("Model is not loaded. Start download now?");
+            const confirmInit = confirm("System Offline. Initialize Storage Engine?");
             if(confirmInit) engine.init();
             return;
         }
@@ -363,7 +413,7 @@ const app = {
 
     assist: function(mode) {
         if (!engine.isReady) { 
-            const confirmInit = confirm("Model is not loaded. Start download now?");
+            const confirmInit = confirm("System Offline. Initialize Storage Engine?");
             if(confirmInit) engine.init();
             return; 
         }
@@ -372,7 +422,7 @@ const app = {
         if (!text) return;
 
         const originalPlaceholder = ui.dom.input.placeholder;
-        ui.dom.input.placeholder = "AI is enhancing...";
+        ui.dom.input.placeholder = "Processing...";
         ui.dom.input.disabled = true;
 
         engine.generate(text, mode);
@@ -382,20 +432,22 @@ const app = {
         this.originalPlaceholder = originalPlaceholder;
     },
 
+    handleStream: function(text) {
+        const messages = document.querySelectorAll('.ai-text');
+        const lastMsg = messages[messages.length - 1];
+        if(lastMsg) {
+            if(lastMsg.querySelector('.typing-dots')) {
+                lastMsg.innerHTML = '';
+            }
+            // Preserve newlines
+            lastMsg.innerHTML = text.replace(/\n/g, '<br>');
+            ui.scrollToBottom();
+        }
+    },
+
     handleResponse: function(data, mode) {
         let cleanData = data; 
-
-        if (mode === 'chat') {
-            const messages = document.querySelectorAll('.ai-text');
-            const lastMsg = messages[messages.length - 1];
-            if(lastMsg) {
-                lastMsg.innerHTML = cleanData.replace(/\n/g, '<br>');
-            }
-            engine.addToHistory('assistant', cleanData);
-            ui.dom.btn.disabled = false;
-            ui.dom.input.focus();
-        } 
-        else {
+        if (mode !== 'chat') {
             cleanData = cleanData.replace(/```[\w]*\n?/g, '').replace(/```/g, '');
             ui.dom.input.value = cleanData;
             ui.dom.input.disabled = false;
@@ -408,7 +460,7 @@ const app = {
 };
 
 window.onload = function() {
-    console.log("Window Loaded.");
+    console.log("System Boot.");
     window.engine = engine;
     window.app = app;
     window.ui = ui;
