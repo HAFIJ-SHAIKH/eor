@@ -10,10 +10,12 @@
 </head>
 <body>
 
+    <!-- Mobile Menu Button -->
     <button class="mobile-menu-btn" id="menu-btn">
         <i class="fa-solid fa-bars" id="menu-icon"></i>
     </button>
 
+    <!-- Backdrop -->
     <div class="mobile-backdrop" id="mobile-backdrop"></div>
 
     <div class="app-container">
@@ -30,6 +32,7 @@
                 </div>
             </div>
             
+            <!-- Navigation (No onclick attributes) -->
             <nav class="sidebar-nav">
                 <button class="nav-item active" id="nav-workspace">Workspace</button>
                 <button class="nav-item" id="nav-reset">New Session</button>
@@ -53,8 +56,7 @@
                         <div class="message-content welcome-banner">
                             <h2>Welcome to <strong>EOR Workspace</strong></h2>
                             <p>
-                                Mobile Mode Active.<br>
-                                • Files stored in browser cache.<br>
+                                System Ready.<br>
                                 • Click "Offline" to start download (1GB).<br>
                                 • Use WiFi for best performance.
                             </p>
@@ -64,6 +66,12 @@
             </div>
             
             <div class="input-dock-wrapper">
+                <div class="assist-toolbar">
+                    <!-- Assist Button with Animation Class -->
+                    <button class="assist-btn universal-btn" id="assist-btn" title="AI Assist">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> AI Assist
+                    </button>
+                </div>
                 <div class="input-dock">
                     <textarea id="msg-input" rows="1" placeholder="Type anything here..."></textarea>
                     <button id="send-btn" class="send-btn" aria-label="Send Message">
@@ -84,6 +92,7 @@
         <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
+    <!-- Script Module -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
