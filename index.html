@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EOR | AI Workspace</title>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Local CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Decor -->
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+
+    <div class="app-container">
+        
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> EOR
+            </div>
+
+            <div class="context-panel">
+                <div class="context-title"><i class="fa-solid fa-brain"></i> Active Context</div>
+                <div class="context-chips">
+                    <div class="chip">Presentation</div>
+                    <div class="chip">Research</div>
+                    <div class="chip">Coding</div>
+                </div>
+            </div>
+
+            <button class="nav-item active">Workspace</button>
+            <button class="nav-item" onclick="app.reset()">New Session</button>
+            
+            <div class="sidebar-footer">
+                <div class="status-pill" onclick="engine.init()">
+                    <div class="status-dot" id="status-dot"></div>
+                    <span class="status-text" id="status-text">Model Offline</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="chat-viewport" id="chat-viewport">
+                <div class="chat-container" id="chat-list">
+                    <!-- Initial Message -->
+                    <div class="message-row">
+                        <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                        <div class="message-content">
+                            <h2 style="margin-bottom: 10px; color: var(--text-dark);">Welcome to <strong>EOR Workspace</strong></h2>
+                            <p style="color: var(--text-gray); line-height: 1.6;">
+                                I am ready to help with <strong>anything</strong>.<br>
+                                • Type a draft for a presentation or email.<br>
+                                • Paste code to debug or complete.<br>
+                                • Ask for research summaries.<br><br>
+                                Use the <strong>"AI Assist"</strong> button to refine your text in real-time.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-dock-wrapper">
+                <div class="assist-toolbar">
+                    <button class="assist-btn universal-btn" onclick="app.assist('universal')" title="AI Assist">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> AI Assist
+                    </button>
+                </div>
+
+                <div class="input-dock">
+                    <textarea id="msg-input" rows="1" placeholder="Type anything here..." 
+                        oninput="ui.resize(this); app.detectCode(this)" 
+                        onkeydown="app.handleEnter(event)"></textarea>
+                    <button id="send-btn" class="send-btn" onclick="app.send()" disabled aria-label="Send Message">
+                        <i class="fa-solid fa-arrow-up"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Model Loader Overlay -->
+            <div class="loader-overlay" id="loader-overlay">
+                <i class="fa-solid fa-microchip loader-icon"></i>
+                <h2 class="modal-title">Initializing Engine</h2>
+                <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files from Hugging Face.<br>Please wait...</p>
+                <div class="progress-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <div class="log-text" id="loader-log">Waiting to start...</div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Main Application Script -->
+    <script src="script.js" defer></script>
+</body>
+</html>
