@@ -97,28 +97,45 @@ const ui = {
             assistBtn: document.getElementById('assist-btn')
         };
 
-        // --- FIX: Event Listeners added here ---
+        // --- FIX: All Event Listeners Here ---
         
         // 1. Mobile Menu Button
-        this.dom.menuBtn.addEventListener('click', () => this.toggleMobileMenu());
+        this.dom.menuBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleMobileMenu();
+        });
 
-        // 2. Backdrop
-        this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
+        // 2. Backdrop (Click to close)
+        this.dom.backdrop.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.closeMobileMenu();
+        });
 
-        // 3. Navigation
+        // 3. Sidebar Navigation
         this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
         this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
         this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
 
-        // 4. Init Engine
+        // 4. Status Pill (Init Engine)
         this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
 
-        // 5. Inputs
+        // 5. Input & Send Button
         this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
         this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
-        this.dom.btn.addEventListener('click', () => app.send());
-        this.dom.assistBtn.addEventListener('click', () => app.assist('universal'));
+        
+        // Fix: Send button listener
+        this.dom.btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            app.send();
+        });
 
+        this.dom.assistBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            app.assist('universal');
+        });
+
+        // Initialize status
         this.updateStatus(false);
     },
 
@@ -135,6 +152,8 @@ const ui = {
         } else {
             text.innerText = "Offline";
             text.style.color = "var(--text-muted)";
+            // Fix: Ensure button is not disabled so we can click it to trigger warning
+            btn.disabled = false; 
         }
     },
 
@@ -220,171 +239,5 @@ const engine = {
         loader.bar.style.width = '0%';
 
         try {
-            // SECURITY CHECK: Detect if running on file:// protocol which blocks downloads
-            if (window.location.protocol === 'file:') {
-                throw new Error("Cannot download files from 'file://' protocol. Please use a local server (e.g. VS Code Live Server).");
-            }
-
-            // 1. FILE HANDLING
-            let progress = 0;
-            const totalFiles = FILES_TO_DOWNLOAD.length;
-
-            for (const file of FILES_TO_DOWNLOAD) {
-                ui.updateStatus(false);
-                loader.log.innerText += `> Checking ${file}...\n`;
-                
-                if (await fileExists(file)) {
-                    loader.log.innerText += `> Found locally. Verifying...\n`;
-                    try { 
-                        await loadFileToMemory(file); 
-                        loader.log.innerText += `> Verified OK.\n`;
-                    } catch (e) { 
-                        loader.log.innerText += `> Corrupted. Re-downloading...\n`;
-                        await downloadAndSave(file, (loaded, size) => {
-                            const percent = ((progress + loaded/size) / totalFiles) * 80;
-                            loader.bar.style.width = percent + '%';
-                        });
-                    }
-                } else {
-                    loader.log.innerText += `> Not found. Downloading...\n`;
-                    await downloadAndSave(file, (loaded, size) => {
-                        const percent = ((progress + loaded/size) / totalFiles) * 80;
-                        loader.bar.style.width = percent + '%';
-                    });
-                }
-                progress++;
-                loader.bar.style.width = (progress / totalFiles) * 80 + '%';
-            }
-
-            loader.log.innerText += '> All files ready. Loading model...\n';
-            
-            // 2. MODEL LOADING
-            const ggufBuffer = await loadFileToMemory(FILES_TO_DOWNLOAD[0]);
-            const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
-            const modelUrl = URL.createObjectURL(modelBlob);
-
-            env.useBrowserCache = false; 
-            env.allowLocalModels = false;
-
-            try {
-                this.generator = await pipeline('text-generation', modelUrl, {
-                    quantized: true,
-                    dtype: 'q4',
-                });
-                loader.log.innerText += '> Model loaded successfully.\n';
-            } catch (err) {
-                console.warn(err);
-                loader.log.innerText += `> Inference failed (Security/SharedArrayBuffer). Switching to Simulation.\n`;
-                this.generator = null; 
-            }
-
-            loader.bar.style.width = '100%';
-            this.isReady = true;
-            ui.updateStatus(true);
-            
-            setTimeout(() => {
-                loader.overlay.classList.remove('active');
-                document.body.style.overflow = '';
-                ui.addMessage('eor', 'System Online. Ready for input.');
-            }, 500);
-
-        } catch (error) {
-            console.error(error);
-            loader.log.innerHTML += `\n> <span style="color:red">ERROR: ${error.message}</span>\n`;
-            loader.bar.style.width = '0%';
-            document.body.style.overflow = '';
-            ui.updateStatus(false);
-        }
-    },
-
-    generate: async function(prompt) {
-        if (!this.isReady) return ui.addMessage('eor', "System is not ready.");
-
-        ui.addMessage('eor', '', true); 
-
-        if (this.generator) {
-            try {
-                const output = await this.generator(prompt, {
-                    max_new_tokens: 150,
-                    do_sample: true,
-                    temperature: 0.7,
-                });
-                ui.updateLastMessage(output[0].generated_text);
-            } catch (err) {
-                ui.updateLastMessage(`Error: ${err.message}`);
-            }
-        } else {
-            await new Promise(r => setTimeout(r, 1200));
-            const simulated = `**[Simulation Mode]**\n\nReceived: "${prompt}"\n\nThe AI engine is disabled in this environment. Ensure you are on a local server.`;
-            ui.updateLastMessage(simulated);
-        }
-    }
-};
-
-// --- APP LOGIC ---
-const app = {
-    handleEnter(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            this.send();
-        }
-    },
-
-    reset: function() {
-        ui.dom.list.innerHTML = '';
-        engine.history = []; 
-        ui.addMessage('eor', "System reset.");
-    },
-
-    send: async function() {
-        const text = ui.dom.input.value.trim();
-        if (!text) return;
-
-        if (!engine.isReady) {
-            const confirmInit = confirm("System Offline. Load Model?");
-            if(confirmInit) engine.init();
-            return;
-        }
-
-        ui.dom.input.value = '';
-        ui.dom.input.style.height = 'auto';
-        ui.resize(ui.dom.input);
-        
-        ui.addMessage('user', text);
-
-        ui.dom.btn.disabled = true;
-        await engine.generate(text);
-        ui.dom.btn.disabled = false;
-        
-        ui.dom.input.focus();
-    },
-
-    assist: async function(mode) {
-        if (!engine.isReady) { 
-            const confirmInit = confirm("System Offline. Load Model?");
-            if(confirmInit) engine.init();
-            return; 
-        }
-        
-        const text = ui.dom.input.value.trim();
-        if (!text) return;
-
-        ui.addMessage('user', `[Assist] ${text}`);
-        ui.dom.input.value = '';
-        
-        ui.dom.btn.disabled = true;
-        await engine.generate(text);
-        ui.dom.btn.disabled = false;
-    }
-};
-
-// Initialize on Load
-window.addEventListener('DOMContentLoaded', () => {
-    ui.init();
-    
-    // Fix: Attach to window explicitly so HTML events can find them if needed
-    // (Though we added listeners in JS, this is extra safety)
-    window.ui = ui;
-    window.app = app;
-    window.engine = engine;
-});
+            // SECURITY CHECK: Detect file protocol
+            if (window
