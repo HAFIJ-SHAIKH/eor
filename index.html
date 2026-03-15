@@ -7,13 +7,21 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    
+    <!-- Load the AI Inference Library (Transformers.js) -->
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
+        
+        // Allow the worker to access the library if needed, 
+        // or we will import it directly inside the worker (recommended).
+        window.TransormersLib = { pipeline, env };
+    </script>
 </head>
 <body>
 
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
 
-    <!-- Mobile Menu Button (Icon ID added) -->
     <button class="mobile-menu-btn" onclick="ui.toggleMobileMenu()" id="menu-btn">
         <i class="fa-solid fa-bars" id="menu-icon" style="color: #475569; font-size: 1.2rem;"></i>
     </button>
@@ -38,7 +46,7 @@
             <div class="sidebar-footer">
                 <div class="status-pill" onclick="engine.init(); ui.closeMobileMenu();">
                     <div class="status-dot" id="status-dot"></div>
-                    <span class="status-text" id="status-text">Model Offline</span>
+                    <span class="status-text" id="status-text">System Offline</span>
                 </div>
             </div>
         </aside>
@@ -50,11 +58,9 @@
                         <div class="message-content">
                             <h2 style="margin-bottom: 10px; color: var(--text-dark);">Welcome to <strong>EOR Workspace</strong></h2>
                             <p style="color: var(--text-gray); line-height: 1.6;">
-                                I am ready to help with <strong>anything</strong>.<br>
-                                • Type a draft for a presentation or email.<br>
-                                • Paste code to debug or complete.<br>
-                                • Ask for research summaries.<br><br>
-                                Use the <strong>"AI Assist"</strong> button to refine your text in real-time.
+                                System Ready. Files will be stored in <strong>eor_storage</strong>.<br>
+                                • Initializing Local AI...<br>
+                                • Type a message to start.
                             </p>
                         </div>
                     </div>
@@ -80,16 +86,17 @@
 
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
-        <h2 class="modal-title">Initializing Engine</h2>
-        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files in parallel.<br>Please wait...</p>
+        <h2 class="modal-title">Initializing AI Engine</h2>
+        <p class="modal-desc">Accessing <strong>eor_storage</strong>.<br>Loading GGUF Model into Memory...</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
-        <div class="log-text" id="loader-log">Waiting to start...</div>
+        <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
     <div id="download-area" style="display:none;"></div>
 
-    <script src="script.js"></script>
+    <!-- Main Script -->
+    <script type="module" src="script.js"></script>
 </body>
 </html>
