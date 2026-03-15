@@ -2,9 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>EOR | AI Workspace</title>
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
@@ -15,10 +14,18 @@
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
 
+    <!-- NEW: Mobile Menu Button -->
+    <button class="mobile-menu-btn" onclick="ui.toggleMobileMenu()">
+        <i class="fa-solid fa-bars" style="color: #64748b; font-size: 1.2rem;"></i>
+    </button>
+
+    <!-- NEW: Mobile Backdrop (Dimmer) -->
+    <div class="mobile-backdrop" id="mobile-backdrop" onclick="ui.toggleMobileMenu()"></div>
+
     <div class="app-container">
         
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> EOR
             </div>
@@ -32,12 +39,11 @@
                 </div>
             </div>
 
-            <button class="nav-item active">Workspace</button>
-            <button class="nav-item" onclick="app.reset()">New Session</button>
+            <button class="nav-item active" onclick="ui.closeMobileMenu()">Workspace</button>
+            <button class="nav-item" onclick="app.reset(); ui.closeMobileMenu()">New Session</button>
             
             <div class="sidebar-footer">
-                <!-- This button must work immediately -->
-                <div class="status-pill" onclick="engine.init()">
+                <div class="status-pill" onclick="engine.init(); ui.closeMobileMenu();">
                     <div class="status-dot" id="status-dot"></div>
                     <span class="status-text" id="status-text">Model Offline</span>
                 </div>
@@ -83,7 +89,7 @@
         </main>
     </div>
 
-    <!-- OVERLAY MUST BE HERE (Direct child of body) -->
+    <!-- OVERLAY -->
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing Engine</h2>
@@ -94,7 +100,6 @@
         <div class="log-text" id="loader-log">Waiting to start...</div>
     </div>
 
-    <!-- REMOVED 'defer' to ensure immediate execution -->
     <script src="script.js"></script>
 </body>
 </html>
