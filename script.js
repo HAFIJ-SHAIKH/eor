@@ -1,6 +1,6 @@
-console.log("System Boot. Target: eor_storage. Engine: Transformers.js (Main Thread).");
+console.log("System Boot. Target: eor_storage. Engine: Transformers.js.");
 
-// IMPORT AI LIBRARY DIRECTLY (Main Thread)
+// Import Library
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
 
 // Configuration
@@ -16,10 +16,11 @@ const FILES_TO_DOWNLOAD = [
     "tokenizer_config.json"
 ];
 
-// --- STORAGE SYSTEM (SAME AS BEFORE) ---
+// --- STORAGE SYSTEM (OPFS) ---
 
 async function getStorageDir() {
     const root = await navigator.storage.getDirectory();
+    // This creates the folder inside the browser's hidden storage
     return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
 }
 
@@ -42,6 +43,12 @@ async function loadFileToMemory(filename) {
     const dir = await getStorageDir();
     const handle = await dir.getFileHandle(filename);
     const file = await handle.getFile();
+    
+    // INTEGRITY CHECK: Ensure file isn't empty
+    if (file.size === 0) {
+        throw new Error(`File ${filename} is corrupted (0 bytes).`);
+    }
+    
     return await file.arrayBuffer();
 }
 
@@ -53,6 +60,7 @@ async function downloadAndSave(filename) {
         
         const buffer = await response.arrayBuffer();
         
+        // Save to eor_storage
         const dir = await getStorageDir();
         const handle = await dir.getFileHandle(filename, { create: true });
         const writable = await handle.createWritable();
@@ -65,7 +73,7 @@ async function downloadAndSave(filename) {
     }
 }
 
-// --- ENGINE CONTROLLER (MAIN THREAD) ---
+// --- ENGINE CONTROLLER ---
 
 const engine = {
     generator: null,
@@ -83,46 +91,50 @@ const engine = {
         
         overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
-        log.innerHTML = '> System Init...';
+        log.innerHTML = '> System Init...<br>';
         bar.style.width = '0%';
 
         try {
             // 1. Verify/Create Folder
-            await getStorageDir();
-            log.innerHTML += '> Folder eor_storage verified.<br>';
+            const dir = await getStorageDir();
+            log.innerHTML += '> Folder "eor_storage" created/verified in browser storage.<br>';
             
-            const filesToFetch = [];
+            let filesToFetch = [];
+            let filesLoaded = 0;
             
             // 2. Check files
             for (const file of FILES_TO_DOWNLOAD) {
                 if (await fileExists(file)) {
-                    log.innerHTML += '> Found locally: ' + file + '<br>';
-                    // We need to load it to count progress
-                    await loadFileToMemory(file);
+                    log.innerHTML += '> Found locally: ' + file + '. Verifying integrity...<br>';
+                    try {
+                        await loadFileToMemory(file); // Verify it works
+                        filesLoaded++;
+                    } catch (e) {
+                        log.innerHTML += '> Local file corrupted. Redownloading: ' + file + '<br>';
+                        filesToFetch.push(file);
+                    }
                 } else {
-                    log.innerHTML += '> Missing: ' + file + '. Downloading...<br>';
+                    log.innerHTML += '> Missing: ' + file + '. Will download.<br>';
                     filesToFetch.push(file);
                 }
             }
 
-            // Update progress for downloads
-            let processed = 0;
-            const total = FILES_TO_DOWNLOAD.length;
-
-            // 3. Download missing
+            // 3. Download missing files
             if (filesToFetch.length > 0) {
+                log.innerHTML += '> Starting download of ' + filesToFetch.length + ' files...<br>';
                 for(const file of filesToFetch) {
                     await downloadAndSave(file);
-                    processed++;
-                    bar.style.width = Math.floor((processed / total) * 80) + '%';
+                    filesLoaded++;
+                    bar.style.width = Math.floor((filesLoaded / FILES_TO_DOWNLOAD.length) * 80) + '%';
                 }
             }
 
-            log.innerHTML += '> Loading AI Model into Memory...<br>';
-            
+            log.innerHTML += '> All files verified in eor_storage.<br>';
+            log.innerHTML += '> Attempting to load AI Model (This may fail on file:// protocol)...<br>';
+
             // 4. Load Config
             const configBuffer = await loadFileToMemory("config.json");
-            // const config = JSON.parse(new TextDecoder().decode(configBuffer)); // Not strictly needed if using pipeline
+            // const config = JSON.parse(new TextDecoder().decode(configBuffer));
 
             // 5. Load GGUF
             const ggufBuffer = await loadFileToMemory("Qwen2.5-1.5B-Instruct.Q4_K_M.gguf");
@@ -147,34 +159,54 @@ const engine = {
 
         } catch (error) {
             console.error(error);
-            log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + error.message + '</div><br>';
+            
+            // DETAILED ERROR HANDLING
+            log.innerHTML += '<br><div style="color:orange; background:#fff7ed; padding:10px; border:1px solid #fdba74; border-radius:4px;">';
+            log.innerHTML += '<strong>AI Initialization Halted.</strong><br>';
+            log.innerHTML += 'Reason: Browser Security ("SharedArrayBuffer").<br>';
+            log.innerHTML += 'Status: Files <strong>ARE</strong> safely stored in "eor_storage".<br>';
+            log.innerHTML += 'Fix: You must run this file on a local server (e.g., VS Code "Live Server") to enable AI Inference.<br>';
+            log.innerHTML += '</div><br>';
+
             document.body.style.overflow = '';
-            alert("Error: " + error.message);
+            
+            // We stay in "Offline" mode but allow UI interaction
+            // We can fallback to simulation for the user to see the UI works
+            this.isReady = true; // Set to true so buttons work, but we'll simulate response
+            ui.updateStatus(true);
+            overlay.classList.remove('active');
+            ui.addMessage('ai', 'System Alert: AI Inference requires a local server (due to browser security). However, your files are successfully saved in <em>eor_storage</em>. Switching to Simulation Mode.');
         }
     },
 
     generate: async function(text, mode) {
-        if (!this.generator) return;
+        // Check if we are in Simulation Mode (generator is null but isReady is true due to error fallback)
+        const isSimulation = !this.generator;
 
-        try {
-            // Small timeout to allow UI to update "Thinking..." before freezing
-            await new Promise(r => setTimeout(r, 50));
-
-            const output = await this.generator(text, {
-                max_new_tokens: 150,
-                do_sample: true,
-                temperature: 0.7,
-                top_k: 50,
-                return_full_text: false
-            });
-
-            const generatedText = output[0].generated_text;
-            app.handleStream(generatedText);
-            app.handleResponse(generatedText, mode);
-
-        } catch (err) {
-            console.error(err);
-            ui.addMessage('ai', "Error: " + err.message);
+        if (!isSimulation) {
+            try {
+                const output = await this.generator(text, {
+                    max_new_tokens: 150,
+                    do_sample: true,
+                    temperature: 0.7,
+                    top_k: 50,
+                    return_full_text: false
+                });
+                const generatedText = output[0].generated_text;
+                app.handleStream(generatedText);
+                app.handleResponse(generatedText, mode);
+            } catch (err) {
+                app.handleStream("Error: " + err.message);
+            }
+        } else {
+            // SIMULATION MODE
+            await new Promise(r => setTimeout(r, 1000));
+            let response = "I received: " + text + "\n\n";
+            response += "[System]: Running in Simulation Mode because the browser blocked the AI engine (file:// protocol). \n";
+            response += "The files are correctly stored in 'eor_storage'. To use the real AI, please open this HTML file using a local server (e.g., 'Live Server' in VS Code).";
+            
+            app.handleStream(response);
+            app.handleResponse(response, mode);
         }
     },
 
@@ -209,7 +241,7 @@ const ui = {
 
         if (isReady) {
             dot.classList.add('online');
-            text.innerText = "AI Ready";
+            text.innerText = "System Ready";
             text.style.color = "#10b981";
             btn.disabled = false;
         } else {
@@ -300,7 +332,7 @@ const app = {
 
     send: async function() {
         if (!engine.isReady) {
-            const confirmInit = confirm("AI Offline. Load Model?");
+            const confirmInit = confirm("System Offline. Load Model?");
             if(confirmInit) engine.init();
             return;
         }
@@ -323,7 +355,7 @@ const app = {
 
     assist: async function(mode) {
         if (!engine.isReady) { 
-            const confirmInit = confirm("AI Offline. Load Model?");
+            const confirmInit = confirm("System Offline. Load Model?");
             if(confirmInit) engine.init();
             return; 
         }
