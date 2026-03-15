@@ -51,7 +51,6 @@ body {
     flex-shrink: 0;
     position: relative;
     z-index: 100;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .brand {
@@ -92,30 +91,6 @@ body {
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); transition: all 0.3s; }
 .status-dot.online { background: #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
 .status-text { font-size: 0.85rem; font-weight: 600; color: var(--text-dark); }
-
-/* Mobile Controls */
-.mobile-menu-btn {
-    display: none;
-    position: fixed; 
-    top: 20px; left: 20px;
-    z-index: 9999;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    width: 44px; height: 44px;
-    cursor: pointer;
-    box-shadow: var(--shadow-soft);
-    align-items: center; justify-content: center;
-}
-.mobile-menu-btn i { color: var(--text-gray); font-size: 1.2rem; }
-
-.mobile-backdrop {
-    display: none;
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 50;
-}
-.mobile-backdrop.open { display: block; }
 
 /* Main Content */
 .main-content { flex: 1; display: flex; flex-direction: column; position: relative; min-width: 0; }
@@ -241,11 +216,10 @@ textarea:focus { outline: none; }
     100% { border-radius: 50%; transform: rotate(360deg); }
 }
 
-/* Responsive */
+/* Responsive - Removed Mobile Menu Logic */
 @media (max-width: 768px) { 
-    .mobile-menu-btn { display: flex; }
-    .sidebar { position: fixed; left: -300px; top: 0; bottom: 0; box-shadow: 5px 0 25px rgba(0,0,0,0.1); }
-    .sidebar.open { left: 0; }
+    /* Hide sidebar completely on mobile for full-screen chat */
+    .sidebar { display: none; }
     .chat-container { max-width: 100%; padding-bottom: 100px; }
 }
 @media (min-width: 769px) {
