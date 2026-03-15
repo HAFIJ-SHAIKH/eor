@@ -35,8 +35,15 @@ function workerScript() {
             data: { name: filename, current: index + 1, total: totalFiles } 
         });
 
+        // NEW: AbortController to handle timeouts/hangs
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 Minute Timeout
+
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: controller.signal });
+            
+            clearTimeout(timeoutId); // Clear timeout if fetch starts
+
             if (!response.ok) {
                 throw new Error("HTTP " + response.status);
             }
@@ -76,7 +83,10 @@ function workerScript() {
             });
 
         } catch (err) {
-            self.postMessage({ status: 'error', data: "Failed to download " + filename + ": " + err.message });
+            clearTimeout(timeoutId);
+            let msg = err.message;
+            if (err.name === 'AbortError') msg = "Download Timeout (5 mins). Connection too slow.";
+            self.postMessage({ status: 'error', data: "Failed to download " + filename + ": " + msg });
             throw err; 
         }
     }
@@ -118,8 +128,7 @@ const engine = {
     init: function() {
         console.log("Engine Init Called");
         
-        // Warning for Data Usage (Especially mobile)
-        const confirmDownload = confirm("This will download approximately 1GB of model data. \n\nAre you sure you want to continue? (WiFi recommended)");
+        const confirmDownload = confirm("This will download approximately 1GB of model data. \n\nAre you sure? (WiFi recommended)");
         if (!confirmDownload) return;
 
         if (this.isReady) {
@@ -137,7 +146,6 @@ const engine = {
         }
         
         overlay.classList.add('active');
-        // Lock body scroll on mobile
         document.body.style.overflow = 'hidden';
         
         log.innerHTML = '> Initializing...';
@@ -169,26 +177,22 @@ const engine = {
             }
             else if (status === 'file_complete') {
                 log.innerHTML += '> Finished: ' + data.name + ' (' + data.size + ')<br>';
-                log.scrollTop = log.scrollHeight;
             }
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
-                // Unlock body scroll
                 document.body.style.overflow = '';
                 ui.updateStatus(true);
-                ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files completely downloaded.');
+                ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files in memory.');
             }
             else if (status === 'error') {
                 log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
-                // Unlock body scroll on error too
                 document.body.style.overflow = '';
             }
             else if (status === 'complete') {
                 app.handleResponse(data, e.data.mode);
             }
             
-            // Keep log scrolled to bottom
             log.scrollTop = log.scrollHeight;
         };
 
@@ -206,7 +210,7 @@ const engine = {
     }
 };
 
-// 3. UI CONTROLLER (Updated for Mobile)
+// 3. UI CONTROLLER
 const ui = {
     dom: {
         list: document.getElementById('chat-list'),
@@ -240,7 +244,6 @@ const ui = {
         }
     },
 
-    // NEW: Mobile Menu Logic
     toggleMobileMenu: function() {
         if(!this.dom.sidebar) return;
         const isOpen = this.dom.sidebar.classList.contains('open');
@@ -388,9 +391,11 @@ const app = {
 };
 
 // 5. GLOBAL ATTACHMENT
-console.log("Script Loaded. Attaching to window...");
-window.engine = engine;
-window.app = app;
-window.ui = ui;
-
-ui.updateStatus(false);
+// FIXED: Using window.onload ensures DOM is ready and ui is attached before user can click
+window.onload = function() {
+    console.log("Window Loaded. Attaching objects.");
+    window.engine = engine;
+    window.app = app;
+    window.ui = ui;
+    ui.updateStatus(false);
+};
