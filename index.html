@@ -13,8 +13,9 @@
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
 
-    <button class="mobile-menu-btn" onclick="ui.toggleMobileMenu()">
-        <i class="fa-solid fa-bars" style="color: #64748b; font-size: 1.2rem;"></i>
+    <!-- Mobile Menu Button (Icon ID added) -->
+    <button class="mobile-menu-btn" onclick="ui.toggleMobileMenu()" id="menu-btn">
+        <i class="fa-solid fa-bars" id="menu-icon" style="color: #475569; font-size: 1.2rem;"></i>
     </button>
 
     <div class="mobile-backdrop" id="mobile-backdrop" onclick="ui.toggleMobileMenu()"></div>
@@ -46,7 +47,6 @@
             <div class="chat-viewport" id="chat-viewport">
                 <div class="chat-container" id="chat-list">
                     <div class="message-row">
-                        <div class="avatar"><i class="fa-solid fa-robot"></i></div>
                         <div class="message-content">
                             <h2 style="margin-bottom: 10px; color: var(--text-dark);">Welcome to <strong>EOR Workspace</strong></h2>
                             <p style="color: var(--text-gray); line-height: 1.6;">
@@ -81,14 +81,13 @@
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing Engine</h2>
-        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files.<br>They will be saved to your Downloads folder.</p>
+        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files in parallel.<br>Please wait...</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
         <div class="log-text" id="loader-log">Waiting to start...</div>
     </div>
 
-    <!-- Hidden area for triggering downloads -->
     <div id="download-area" style="display:none;"></div>
 
     <script src="script.js"></script>
