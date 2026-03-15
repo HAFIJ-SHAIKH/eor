@@ -10,13 +10,8 @@
 </head>
 <body>
 
-    <button class="mobile-menu-btn" id="menu-btn">
-        <i class="fa-solid fa-bars" id="menu-icon"></i>
-    </button>
-
-    <div class="mobile-backdrop" id="mobile-backdrop"></div>
-
     <div class="app-container">
+        <!-- Sidebar (Visible on Desktop, Removed on Mobile) -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> EOR
@@ -25,7 +20,8 @@
                 <div class="context-title"><i class="fa-solid fa-brain"></i> Active Context</div>
                 <div class="context-chips">
                     <div class="chip">WebLLM</div>
-                    <div class="chip">Memory</div>
+                    <div class="chip">Memory: 20</div>
+                    <div class="chip">Max Tokens: 2048</div>
                 </div>
             </div>
             
@@ -52,9 +48,10 @@
                         <div class="message-content welcome-banner">
                             <h2>Welcome to <strong>EOR Workspace</strong></h2>
                             <p>
-                                System Ready.<br>
-                                • Click "Offline" to initialize AI.<br>
-                                • Long responses handled correctly.
+                                System Updated.<br>
+                                • Long responses enabled (2048 tokens).<br>
+                                • Memory holds last 20 messages.<br>
+                                • Mobile Menu Removed for cleaner UI.
                             </p>
                         </div>
                     </div>
