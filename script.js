@@ -93,25 +93,44 @@ const ui = {
             navWorkspace: document.getElementById('nav-workspace'),
             navReset: document.getElementById('nav-reset'),
             navTheme: document.getElementById('nav-theme'),
-            statusPill: document.getElementById('status-pill')
+            statusPill: document.getElementById('status-pill'),
+            assistBtn: document.getElementById('assist-btn')
         };
 
-        // Event Listeners
+        // --- STRICT EVENT LISTENERS (Fix for buttons not working) ---
+        
+        // 1. Menu Button
         this.dom.menuBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
+            e.preventDefault();
             this.toggleMobileMenu();
         });
 
+        // 2. Backdrop
         this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
 
+        // 3. Sidebar Navigation
         this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
         this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
         this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
+
+        // 4. Status Pill (Initialize Engine)
         this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
 
+        // 5. Input & Buttons
         this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
         this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
-        this.dom.btn.addEventListener('click', () => app.send());
+        
+        // Fix: Send Button Listener
+        this.dom.btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            app.send();
+        });
+
+        // Fix: Assist Button Listener
+        this.dom.assistBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            app.assist('universal');
+        });
 
         this.updateStatus(false);
     },
@@ -151,11 +170,7 @@ const ui = {
         menuIcon.className = "fa-solid fa-bars";
     },
 
-    resize: function(el) {
-        el.style.height = 'auto';
-        el.style.height = el.scrollHeight + 'px';
-    },
-
+    resize: function(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; },
     scrollToBottom: function() { this.dom.viewport.scrollTop = this.dom.viewport.scrollHeight; },
 
     formatText: function(text) {
@@ -196,7 +211,7 @@ const engine = {
         loader.bar.style.width = '0%';
 
         try {
-            // 1. DOWNLOAD/CHECK FILES
+            // 1. DOWNLOAD FILES
             let progress = 0;
             const totalFiles = FILES_TO_DOWNLOAD.length;
             for (const file of FILES_TO_DOWNLOAD) {
@@ -204,11 +219,11 @@ const engine = {
                 if (await fileExists(file)) {
                     try { await loadFileToMemory(file); loader.log.innerText += `> Found.\n`; } 
                     catch (e) {
-                        loader.log.innerText += `> Re-downloading...\n`;
+                        loader.log.innerText += `> Downloading...\n`;
                         await downloadAndSave(file, (l, s) => loader.bar.style.width = ((progress + l/s) / totalFiles * 80) + '%');
                     }
                 } else {
-                    loader.log.innerText += `> Downloading... (Wait)\n`;
+                    loader.log.innerText += `> Downloading...\n`;
                     await downloadAndSave(file, (l, s) => loader.bar.style.width = ((progress + l/s) / totalFiles * 80) + '%');
                 }
                 progress++;
@@ -227,7 +242,6 @@ const engine = {
             this.generator = await pipeline('text-generation', modelUrl, {
                 quantized: true,
                 dtype: 'q4',
-                // This helps show progress inside the model loading phase
                 progress_callback: (data) => {
                     if(data.status === 'loading') loader.log.innerText = `> Loading: ${data.file} ${Math.round(data.progress || 0)}%`;
                 }
@@ -247,15 +261,8 @@ const engine = {
         } catch (error) {
             console.error(error);
             loader.log.innerHTML += `\n<span style="color:red">> ERROR: ${error.message}</span>\n`;
+            if (error.message.includes('memory')) loader.log.innerHTML += `\n> Memory Limit Reached.\n`;
             loader.bar.style.width = '0%';
-            
-            // If on mobile/github pages, show specific helpful error
-            if (error.message.includes('out of memory') || error.message.includes('memory')) {
-                loader.log.innerHTML += `\n> Memory Limit Reached. Try closing other tabs.\n`;
-            } else if (window.location.protocol === 'https:') {
-                 loader.log.innerHTML += `\n> Secure Context: OK. Connection Issue? Check console.\n`;
-            }
-            
             document.body.style.overflow = '';
             ui.updateStatus(false);
         }
@@ -289,10 +296,23 @@ const app = {
         await engine.generate(text);
         ui.dom.btn.disabled = false;
         ui.dom.input.focus();
+    },
+
+    async assist(mode) {
+        const text = ui.dom.input.value.trim();
+        if (!text) return ui.addMessage('eor', "Type something first to improve.");
+        if (!engine.isReady) { if(confirm("Start AI?")) engine.init(); return; }
+        
+        const prompt = `Improve this text: ${text}`;
+        ui.dom.input.value = '';
+        ui.addMessage('user', `Assist: ${text}`);
+        ui.dom.btn.disabled = true;
+        await engine.generate(prompt);
+        ui.dom.btn.disabled = false;
     }
 };
 
-// Init
+// Initialize
 window.addEventListener('DOMContentLoaded', () => {
     ui.init();
     window.app = app;
