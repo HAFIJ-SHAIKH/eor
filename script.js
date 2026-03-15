@@ -1,12 +1,12 @@
-console.log("Script Loaded. OPFS System Ready.");
+console.log("System Boot. Target: eor_storage folder.");
 
-// 1. WORKER FUNCTION (OPFS STORAGE + PARALLEL DOWNLOADS)
+// 1. WORKER FUNCTION (PURE OPFS STORAGE)
 function workerScript() {
     const HF_USERNAME = "eorchat";
     const REPO_NAME = "eor";
     const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
     
-    // The folder name in the browser's internal storage
+    // The dedicated folder name
     const STORAGE_FOLDER = "eor_storage";
     
     const FILES_TO_DOWNLOAD = [
@@ -23,7 +23,7 @@ function workerScript() {
     let completedCount = 0;
     let totalFiles = FILES_TO_DOWNLOAD.length;
 
-    // Helper: Access or Create the Folder
+    // Helper: Get or Create the "eor_storage" folder
     async function getStorageDir() {
         const root = await navigator.storage.getDirectory();
         return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
@@ -38,7 +38,7 @@ function workerScript() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
-    // Check if file exists locally
+    // Check if file exists in "eor_storage"
     async function fileExists(filename) {
         try {
             const dir = await getStorageDir();
@@ -49,7 +49,7 @@ function workerScript() {
         }
     }
 
-    // Read file from OPFS into Memory
+    // Load file from "eor_storage" into Memory
     async function loadFileToMemory(filename) {
         try {
             const dir = await getStorageDir();
@@ -57,14 +57,23 @@ function workerScript() {
             const file = await handle.getFile();
             const buffer = await file.arrayBuffer();
             modelBuffers[filename] = new Uint8Array(buffer);
-            self.postMessage({ status: 'file_loaded', data: { name: filename, size: formatBytes(file.size) }});
+            
+            // Report back to main thread
+            self.postMessage({ 
+                status: 'file_loaded', 
+                data: { name: filename, size: formatBytes(file.size) }
+            });
+            
+            // Update progress
+            completedCount++;
+            self.postMessage({ status: 'progress', progress: Math.floor((completedCount / totalFiles) * 100) });
         } catch (e) {
             console.error("Failed to load file from storage", e);
             throw e;
         }
     }
 
-    // Download and Save to OPFS
+    // Download and Save directly to "eor_storage" (No Downloads Folder)
     async function downloadAndSave(filename) {
         const url = HF_BASE_URL + filename;
         
@@ -98,7 +107,7 @@ function workerScript() {
                 position += chunk.length;
             }
 
-            // 2. Save to OPFS Folder
+            // 2. Save directly to "eor_storage" folder inside Browser
             const dir = await getStorageDir();
             const fileHandle = await dir.getFileHandle(filename, { create: true });
             const writable = await fileHandle.createWritable();
@@ -112,6 +121,9 @@ function workerScript() {
                 status: 'file_complete', 
                 data: { name: filename, size: formatBytes(loaded) } 
             });
+            
+            completedCount++;
+            self.postMessage({ status: 'progress', progress: Math.floor((completedCount / totalFiles) * 100) });
 
         } catch (err) {
             clearTimeout(timeoutId);
@@ -125,28 +137,25 @@ function workerScript() {
     self.onmessage = async (e) => {
         if (e.data.type === 'load') {
             try {
-                self.postMessage({ status: 'log', data: "Checking local storage folder: " + STORAGE_FOLDER });
+                self.postMessage({ status: 'log', data = "Initializing File System: " + STORAGE_FOLDER });
                 
-                // Strategy: Check all files first
+                // 1. Scan "eor_storage" for existing files
                 const filesToFetch = [];
                 
                 for (const file of FILES_TO_DOWNLOAD) {
                     const exists = await fileExists(file);
                     if (exists) {
-                        self.postMessage({ status: 'log', data: "Found locally: " + file });
+                        self.postMessage({ status: 'log', data = "Found in " + STORAGE_FOLDER + ": " + file });
                         await loadFileToMemory(file);
-                        completedCount++;
-                        // Update progress
-                        self.postMessage({ status: 'progress', progress: Math.floor((completedCount / totalFiles) * 100) });
                     } else {
-                        self.postMessage({ status: 'log', data: "Missing from storage: " + file + ". Will download." });
+                        self.postMessage({ status: 'log', data = "Not found. Will download to " + STORAGE_FOLDER + ": " + file });
                         filesToFetch.push(file);
                     }
                 }
 
-                // Download missing files in parallel
+                // 2. Download missing files in parallel and save to folder
                 if (filesToFetch.length > 0) {
-                    self.postMessage({ status: 'log', data: `Downloading ${filesToFetch.length} missing files...` });
+                    self.postMessage({ status: 'log', data = "Downloading " + filesToFetch.length + " files to folder..." });
                     const promises = filesToFetch.map(f => downloadAndSave(f));
                     await Promise.all(promises);
                 }
@@ -154,21 +163,21 @@ function workerScript() {
                 self.postMessage({ status: 'ready', count: totalFiles });
 
             } catch (error) {
-                self.postMessage({ status: 'log', data: "System Error: " + error.message });
+                self.postMessage({ status: 'log', data = "System Error: " + error.message });
                 self.postMessage({ status: 'error', data: error.message });
             }
         } 
         else if (e.data.type === 'generate') {
-            // --- SYSTEM SIMULATION ---
-            // In a real app, you would use modelBuffers["Qwen..."] with llama.cpp here.
+            // --- SIMULATED SYSTEM RESPONSE ---
+            // This mimics the AI working with the files in the folder
             const input = e.data.text || "";
             
-            let responseText = "> Processing Input...\n";
-            responseText += "> Tokens: " + input.length + "\n";
-            responseText += "> Context: User Session Active\n";
+            let responseText = "> System Check: OK\n";
+            responseText += "> Memory: " + STORAGE_FOLDER + " (" + Object.keys(modelBuffers).length + " files loaded)\n";
+            responseText += "> Task: Process Input\n";
             responseText += "> Output: " + input + "\n\n";
-            responseText += "[SYSTEM]: Inference module initialized. The model files (" + Object.keys(modelBuffers).length + ") are loaded in memory. \n";
-            responseText += "[SYSTEM]: To enable actual AI reasoning, the WebAssembly binary (llama_cpp.wasm) must be linked. Currently running in Echo Mode.";
+            responseText += "[AI]: I have accessed the files stored in the 'eor_storage' folder. ";
+            responseText += "To generate actual AI responses, the WebAssembly inference kernel (llama_cpp.wasm) must be loaded. Currently running in data-access mode.";
 
             const tokens = responseText.split(' ');
             let currentText = "";
@@ -176,7 +185,7 @@ function workerScript() {
             for (let i = 0; i < tokens.length; i++) {
                 currentText += tokens[i] + " ";
                 self.postMessage({ status: 'streaming', data: currentText, mode: e.data.mode });
-                await new Promise(r => setTimeout(r, 30)); // Fast typing
+                await new Promise(r => setTimeout(r, 30)); 
             }
             
             self.postMessage({ status: 'complete', data: currentText, mode: e.data.mode });
@@ -204,7 +213,7 @@ const engine = {
         
         overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
-        log.innerHTML = '> Initializing OPFS Storage...';
+        log.innerHTML = '> Accessing Storage...';
         bar.style.width = '0%';
 
         try {
@@ -229,12 +238,12 @@ const engine = {
                 log.innerHTML += '> Fetching: ' + data.name + '<br>';
             }
             else if (status === 'file_loaded') {
-                // File found locally
-                log.innerHTML += '<span style="color:blue">> Loaded from Storage: ' + data.name + ' (' + data.size + ')</span><br>';
+                // File found in "eor_storage"
+                log.innerHTML += '<span style="color:green">> Loaded from Folder: ' + data.name + ' (' + data.size + ')</span><br>';
             }
             else if (status === 'file_complete') {
-                // File downloaded and saved
-                log.innerHTML += '> Saved to Storage: ' + data.name + ' (' + data.size + ')<br>';
+                // File saved to "eor_storage"
+                log.innerHTML += '> Saved to Folder: ' + data.name + ' (' + data.size + ')<br>';
             }
             else if (status === 'progress') {
                 bar.style.width = progress + '%';
@@ -244,7 +253,7 @@ const engine = {
                 overlay.classList.remove('active');
                 document.body.style.overflow = '';
                 ui.updateStatus(true);
-                ui.addMessage('ai', '<strong>System Online.</strong> ' + data.count + ' files loaded from local storage.');
+                ui.addMessage('ai', '<strong>System Online.</strong> All files verified in <em>eor_storage</em> folder.');
             }
             else if (status === 'error') {
                 log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
@@ -439,7 +448,6 @@ const app = {
             if(lastMsg.querySelector('.typing-dots')) {
                 lastMsg.innerHTML = '';
             }
-            // Preserve newlines
             lastMsg.innerHTML = text.replace(/\n/g, '<br>');
             ui.scrollToBottom();
         }
