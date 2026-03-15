@@ -1,4 +1,4 @@
-console.log("Script Loaded Successfully. Checking DOM...");
+console.log("Script Loaded Successfully.");
 
 // 1. WORKER FUNCTION
 function workerScript() {
@@ -35,18 +35,14 @@ function workerScript() {
             data: { name: filename, current: index + 1, total: totalFiles } 
         });
 
-        // NEW: AbortController to handle timeouts/hangs
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 Minute Timeout
+        const timeoutId = setTimeout(() => controller.abort(), 300000);
 
         try {
             const response = await fetch(url, { signal: controller.signal });
-            
-            clearTimeout(timeoutId); // Clear timeout if fetch starts
+            clearTimeout(timeoutId);
 
-            if (!response.ok) {
-                throw new Error("HTTP " + response.status);
-            }
+            if (!response.ok) throw new Error("HTTP " + response.status);
 
             const contentLength = response.headers.get('Content-Length');
             const total = parseInt(contentLength, 10);
@@ -77,15 +73,18 @@ function workerScript() {
             }
 
             modelBuffers[filename] = buffer;
+            
+            // Send buffer to main thread to trigger download
             self.postMessage({ 
                 status: 'file_complete', 
-                data: { name: filename, size: formatBytes(loaded) } 
-            });
+                data: { name: filename, size: formatBytes(loaded) },
+                buffer: buffer.buffer // Transferable
+            }, [buffer.buffer]);
 
         } catch (err) {
             clearTimeout(timeoutId);
             let msg = err.message;
-            if (err.name === 'AbortError') msg = "Download Timeout (5 mins). Connection too slow.";
+            if (err.name === 'AbortError') msg = "Download Timeout (5 mins).";
             self.postMessage({ status: 'error', data: "Failed to download " + filename + ": " + msg });
             throw err; 
         }
@@ -96,22 +95,21 @@ function workerScript() {
             try {
                 const totalFiles = FILES_TO_DOWNLOAD.length;
                 self.postMessage({ status: 'log', data: "Starting batch download of " + totalFiles + " files..." });
-                
                 for (let i = 0; i < totalFiles; i++) {
                     await downloadFile(FILES_TO_DOWNLOAD[i], i, totalFiles);
                 }
-                
                 self.postMessage({ status: 'ready', count: totalFiles });
-                
             } catch (error) {
-                self.postMessage({ status: 'log', data: "Download sequence stopped due to error." });
+                self.postMessage({ status: 'log', data: "Download stopped." });
             }
         } 
         else if (e.data.type === 'generate') {
             setTimeout(() => {
+                // Dynamic response to stop "repeating" loop feeling
+                const input = e.data.text || "";
                 self.postMessage({ 
                     status: 'complete', 
-                    data: "Inference logic placeholder. All files are loaded in memory.", 
+                    data: `I received your message: "${input}".\n\n(Note: This is a UI demo. Real AI responses require integrating the GGUF.js inference library.)`, 
                     mode: e.data.mode 
                 });
             }, 500);
@@ -127,14 +125,10 @@ const engine = {
 
     init: function() {
         console.log("Engine Init Called");
-        
-        const confirmDownload = confirm("This will download approximately 1GB of model data. \n\nAre you sure? (WiFi recommended)");
+        const confirmDownload = confirm("This will download ~1GB of files to your device.\n\nThey will be saved in your 'Downloads' folder.");
         if (!confirmDownload) return;
 
-        if (this.isReady) {
-            alert("Already Ready");
-            return;
-        }
+        if (this.isReady) return;
         
         const log = document.getElementById('loader-log');
         const bar = document.getElementById('progress-bar');
@@ -147,7 +141,6 @@ const engine = {
         
         overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
-        
         log.innerHTML = '> Initializing...';
         bar.style.width = '0%';
 
@@ -160,11 +153,11 @@ const engine = {
         }
 
         this.worker.onerror = (e) => {
-            log.innerHTML += '<span style="color:red">> Worker Internal Error</span><br>';
+            log.innerHTML += '<span style="color:red">> Worker Error</span><br>';
         };
 
         this.worker.onmessage = (e) => {
-            const { status, data, progress } = e.data;
+            const { status, data, progress, buffer } = e.data;
 
             if (status === 'log') {
                 log.innerHTML += '> ' + data + '<br>';
@@ -176,14 +169,27 @@ const engine = {
                 bar.style.width = progress + '%';
             }
             else if (status === 'file_complete') {
-                log.innerHTML += '> Finished: ' + data.name + ' (' + data.size + ')<br>';
+                log.innerHTML += '> Saved: ' + data.name + ' (' + data.size + ')<br>';
+                
+                // TRIGGER BROWSER DOWNLOAD
+                if (buffer) {
+                    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = data.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
             }
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
                 document.body.style.overflow = '';
                 ui.updateStatus(true);
-                ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files in memory.');
+                ui.addMessage('ai', 'Engine Ready. <strong>' + data.count + '</strong> files saved to memory and disk.');
             }
             else if (status === 'error') {
                 log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
@@ -247,10 +253,8 @@ const ui = {
     toggleMobileMenu: function() {
         if(!this.dom.sidebar) return;
         const isOpen = this.dom.sidebar.classList.contains('open');
-        
-        if (isOpen) {
-            this.closeMobileMenu();
-        } else {
+        if (isOpen) this.closeMobileMenu();
+        else {
             this.dom.sidebar.classList.add('open');
             this.dom.backdrop.classList.add('open');
         }
@@ -281,7 +285,8 @@ const ui = {
 
     addMessage: function(role, html, isLoading) {
         const row = document.createElement('div');
-        row.className = 'message-row';
+        // Add 'user' class if role is user
+        row.className = 'message-row' + (role === 'user' ? ' user' : '');
         
         let content = '';
         if (role === 'user') {
@@ -319,9 +324,7 @@ const app = {
     send: function() {
         if (!engine.isReady) {
             const confirmInit = confirm("Model is not loaded. Start download now?");
-            if(confirmInit) {
-                engine.init();
-            }
+            if(confirmInit) engine.init();
             return;
         }
 
@@ -344,9 +347,7 @@ const app = {
     assist: function(mode) {
         if (!engine.isReady) { 
             const confirmInit = confirm("Model is not loaded. Start download now?");
-            if(confirmInit) {
-                engine.init();
-            }
+            if(confirmInit) engine.init();
             return; 
         }
         
@@ -369,8 +370,12 @@ const app = {
 
         if (mode === 'chat') {
             const messages = document.querySelectorAll('.ai-text');
+            // Find the last AI message that isn't the welcome message
             const lastMsg = messages[messages.length - 1];
-            lastMsg.innerHTML = cleanData.replace(/\n/g, '<br>');
+            
+            if(lastMsg) {
+                lastMsg.innerHTML = cleanData.replace(/\n/g, '<br>');
+            }
             
             engine.addToHistory('assistant', cleanData);
             
@@ -390,10 +395,8 @@ const app = {
     }
 };
 
-// 5. GLOBAL ATTACHMENT
-// FIXED: Using window.onload ensures DOM is ready and ui is attached before user can click
 window.onload = function() {
-    console.log("Window Loaded. Attaching objects.");
+    console.log("Window Loaded.");
     window.engine = engine;
     window.app = app;
     window.ui = ui;
