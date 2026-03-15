@@ -7,15 +7,20 @@ const WORKER_CODE = `
     const REPO_NAME = "eor";
     const HF_BASE_URL = "https://huggingface.co/" + HF_USERNAME + "/" + REPO_NAME + "/resolve/main/";
     
-    // IMPORTANT: List the exact filenames you need to download here.
-    // If your file is named 'Q4_K_M.gguf' instead of 'model.gguf', change it here.
+    // UPDATED: Exact file list provided
     const FILES_TO_DOWNLOAD = [
-        "model.gguf", 
-        // "tokenizer.json", 
-        // "preprocessor_config.json"
+        "Qwen2.5-1.5B-Instruct.Q4_K_M.gguf",
+        "adapter_config.json",
+        "adapter_model.safetensors",
+        "tokenizer_config.json",
+        "tokenizer.json",
+        "config.json",
+        "chat_template.jinja"
     ];
 
     let modelBuffers = {}; 
+    let totalFiles = FILES_TO_DOWNLOAD.length;
+    let completedFiles = 0;
 
     function formatBytes(bytes, decimals = 2) {
         if (!+bytes) return '0 Bytes';
@@ -35,7 +40,7 @@ const WORKER_CODE = `
             const response = await fetch(url);
             
             if (!response.ok) {
-                throw new Error(\`HTTP \${response.status} for \${filename}\`);
+                throw new Error(\`HTTP \${response.status}\`);
             }
 
             const contentLength = response.headers.get('Content-Length');
@@ -53,19 +58,13 @@ const WORKER_CODE = `
                 chunks.push(value);
                 loaded += value.length;
 
+                // Calculate overall progress roughly based on individual file progress
+                // This is a simplification; for perfect accuracy we'd need total size of all files upfront
                 if (total) {
                     const percent = Math.round((loaded / total) * 100);
-                    self.postMessage({ 
-                        status: 'progress', 
-                        progress: percent, 
-                        filename: filename 
-                    });
+                    self.postMessage({ status: 'progress', progress: percent, filename: filename });
                 } else {
-                    self.postMessage({ 
-                        status: 'progress', 
-                        progress: -1, 
-                        filename: filename 
-                    });
+                    self.postMessage({ status: 'progress', progress: -1, filename: filename });
                 }
             }
 
@@ -88,26 +87,28 @@ const WORKER_CODE = `
     self.onmessage = async (e) => {
         if (e.data.type === 'load') {
             try {
+                self.postMessage({ status: 'log', data: \`Starting download of \${totalFiles} files...\` });
+                
                 for (const file of FILES_TO_DOWNLOAD) {
                     await downloadFile(file);
+                    completedFiles++;
                 }
                 
-                self.postMessage({ status: 'ready', count: FILES_TO_DOWNLOAD.length });
-                
-                // TODO: Initialize GGUF logic here
+                self.postMessage({ status: 'ready', count: completedFiles });
                 
             } catch (error) {
-                console.error(error);
+                self.postMessage({ status: 'log', data: "Download sequence failed or incomplete." });
             }
         } 
         else if (e.data.type === 'generate') {
+            // Placeholder for actual inference
             setTimeout(() => {
                 self.postMessage({ 
                     status: 'complete', 
-                    data: "Model files loaded in memory. (Note: Actual inference logic requires GGUF/WASM bindings).", 
+                    data: "Inference logic placeholder. Files are loaded in memory (modelBuffers).", 
                     mode: e.data.mode 
                 });
-            }, 1000);
+            }, 500);
         }
     };
 `;
@@ -120,7 +121,6 @@ const engine = {
     init: function() {
         if (this.isReady) return;
         
-        // Safety check for DOM elements
         const log = document.getElementById('loader-log');
         const bar = document.getElementById('progress-bar');
         const overlay = document.getElementById('loader-overlay');
@@ -131,17 +131,30 @@ const engine = {
         }
         
         overlay.classList.add('active');
-        log.innerHTML = '> Connecting to Hugging Face...';
+        log.innerHTML = '> Initializing...';
         bar.style.width = '0%';
 
-        const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
-        this.worker = new Worker(URL.createObjectURL(blob));
+        try {
+            const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
+            this.worker = new Worker(URL.createObjectURL(blob));
+        } catch (e) {
+            console.error("Worker creation failed", e);
+            return;
+        }
+
+        this.worker.onerror = (e) => {
+            log.innerHTML += \`<span style="color:red">> Worker Error: \${e.message}</span><br>\`;
+        };
 
         this.worker.onmessage = (e) => {
             const { status, data, progress, filename, count } = e.data;
 
-            if (status === 'initiate') {
-                log.innerHTML += \`> Starting download: \${data.name}<br>\`;
+            if (status === 'log') {
+                log.innerHTML += \`> \${data}<br>\`;
+                log.scrollTop = log.scrollHeight;
+            }
+            else if (status === 'initiate') {
+                log.innerHTML += \`> Fetching: \${data.name}<br>\`;
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'progress') {
@@ -150,20 +163,18 @@ const engine = {
                 }
             }
             else if (status === 'file_complete') {
-                log.innerHTML += \`> Downloaded \${data.name} (\${data.size})<br>\`;
+                log.innerHTML += \`> Downloaded: \${data.name} (\${data.size})<br>\`;
                 log.scrollTop = log.scrollHeight;
             }
             else if (status === 'ready') {
                 this.isReady = true;
                 overlay.classList.remove('active');
                 ui.updateStatus(true);
-                ui.addMessage('ai', \`System loaded. <strong>\${count}</strong> file(s) downloaded from Hugging Face.\`);
+                ui.addMessage('ai', \`Engine Ready. <strong>\${count}</strong> files loaded into memory.\`);
             }
             else if (status === 'error') {
-                this.isReady = false;
-                log.innerHTML += \`<span style="color:red">> ERROR: \${data}</span><br>\`;
-                ui.updateStatus(false);
-                alert("Download failed: " + data);
+                log.innerHTML += \`<div style="color:red; padding:4px; border:1px solid red; margin:4px 0;">> ERROR: \${data}</div><br>\`;
+                log.scrollTop = log.scrollHeight;
             }
             else if (status === 'complete') {
                 app.handleResponse(data, e.data.mode);
@@ -281,8 +292,10 @@ const app = {
 
     send: function() {
         if (!engine.isReady) {
-            alert("Please wait for the model to load. Click 'Model Offline' in the sidebar to start the download.");
-            engine.init(); 
+            const confirmInit = confirm("Model is not loaded. Start download now?");
+            if(confirmInit) {
+                engine.init();
+            }
             return;
         }
 
@@ -304,8 +317,10 @@ const app = {
 
     assist: function(mode) {
         if (!engine.isReady) { 
-            alert("Please load the model first (click sidebar status)."); 
-            engine.init();
+            const confirmInit = confirm("Model is not loaded. Start download now?");
+            if(confirmInit) {
+                engine.init();
+            }
             return; 
         }
         
@@ -353,7 +368,7 @@ const app = {
 window.onload = () => {
     ui.updateStatus(false);
     
-    // CRITICAL FIX: Expose objects to window so HTML onclick attributes work
+    // Expose to window
     window.engine = engine;
     window.app = app;
     window.ui = ui;
