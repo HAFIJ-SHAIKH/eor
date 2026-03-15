@@ -10,14 +10,13 @@
 </head>
 <body>
 
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
-
-    <button class="mobile-menu-btn" onclick="ui.toggleMobileMenu()" id="menu-btn">
-        <i class="fa-solid fa-bars" id="menu-icon" style="color: #475569; font-size: 1.2rem;"></i>
+    <!-- Mobile Menu Button (High Z-Index) -->
+    <button class="mobile-menu-btn" id="menu-btn">
+        <i class="fa-solid fa-bars" id="menu-icon"></i>
     </button>
 
-    <div class="mobile-backdrop" id="mobile-backdrop" onclick="ui.toggleMobileMenu()"></div>
+    <!-- Backdrop (Dimmed Background) -->
+    <div class="mobile-backdrop" id="mobile-backdrop"></div>
 
     <div class="app-container">
         <aside class="sidebar" id="sidebar">
@@ -32,10 +31,18 @@
                     <div class="chip">Coding</div>
                 </div>
             </div>
-            <button class="nav-item active" onclick="ui.closeMobileMenu()">Workspace</button>
-            <button class="nav-item" onclick="app.reset(); ui.closeMobileMenu()">New Session</button>
+            
+            <!-- Navigation handled by JS -->
+            <nav class="sidebar-nav">
+                <button class="nav-item active" id="nav-workspace">Workspace</button>
+                <button class="nav-item" id="nav-reset">New Session</button>
+                <button class="nav-item" id="nav-theme">
+                    <i class="fa-solid fa-moon"></i> Toggle Theme
+                </button>
+            </nav>
+
             <div class="sidebar-footer">
-                <div class="status-pill" onclick="engine.init(); ui.closeMobileMenu();">
+                <div class="status-pill" id="status-pill">
                     <div class="status-dot" id="status-dot"></div>
                     <span class="status-text" id="status-text">System Offline</span>
                 </div>
@@ -45,10 +52,10 @@
         <main class="main-content">
             <div class="chat-viewport" id="chat-viewport">
                 <div class="chat-container" id="chat-list">
-                    <div class="message-row">
-                        <div class="message-content">
-                            <h2 style="margin-bottom: 10px; color: var(--text-dark);">Welcome to <strong>EOR Workspace</strong></h2>
-                            <p style="color: var(--text-gray); line-height: 1.6;">
+                    <div class="message-row eor">
+                        <div class="message-content welcome-banner">
+                            <h2>Welcome to <strong>EOR Workspace</strong></h2>
+                            <p>
                                 System Ready. Files will be stored in <strong>eor_storage</strong>.<br>
                                 • Initializing Local AI (Qwen 2.5)...<br>
                                 • Type a message to start.
@@ -57,17 +64,16 @@
                     </div>
                 </div>
             </div>
+            
             <div class="input-dock-wrapper">
                 <div class="assist-toolbar">
-                    <button class="assist-btn universal-btn" onclick="app.assist('universal')" title="AI Assist">
+                    <button class="assist-btn universal-btn" id="assist-btn" title="AI Assist">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> AI Assist
                     </button>
                 </div>
                 <div class="input-dock">
-                    <textarea id="msg-input" rows="1" placeholder="Type anything here..." 
-                        oninput="ui.resize(this); app.detectCode(this)" 
-                        onkeydown="app.handleEnter(event)"></textarea>
-                    <button id="send-btn" class="send-btn" onclick="app.send()" disabled aria-label="Send Message">
+                    <textarea id="msg-input" rows="1" placeholder="Type anything here..."></textarea>
+                    <button id="send-btn" class="send-btn" disabled aria-label="Send Message">
                         <i class="fa-solid fa-arrow-up"></i>
                     </button>
                 </div>
@@ -85,7 +91,7 @@
         <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
-    <!-- Load the AI Library in the main thread -->
+    <!-- Script placed at the end to ensure DOM is ready -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
