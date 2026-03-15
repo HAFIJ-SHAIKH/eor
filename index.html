@@ -10,12 +10,10 @@
 </head>
 <body>
 
-    <!-- Mobile Menu Button -->
     <button class="mobile-menu-btn" id="menu-btn">
         <i class="fa-solid fa-bars" id="menu-icon"></i>
     </button>
 
-    <!-- Backdrop -->
     <div class="mobile-backdrop" id="mobile-backdrop"></div>
 
     <div class="app-container">
@@ -26,8 +24,8 @@
             <div class="context-panel">
                 <div class="context-title"><i class="fa-solid fa-brain"></i> Active Context</div>
                 <div class="context-chips">
-                    <div class="chip">AI Chat</div>
-                    <div class="chip">Storage</div>
+                    <div class="chip">WebLLM</div>
+                    <div class="chip">Mobile Ready</div>
                 </div>
             </div>
             
@@ -54,9 +52,9 @@
                         <div class="message-content welcome-banner">
                             <h2>Welcome to <strong>EOR Workspace</strong></h2>
                             <p>
-                                System Ready.<br>
-                                • Click "Offline" to start AI.<br>
-                                • Model size: ~1GB (WiFi recommended).
+                                System Updated.<br>
+                                • Using WebLLM Engine (Stable).<br>
+                                • Click "Offline" to initialize AI.
                             </p>
                         </div>
                     </div>
@@ -82,7 +80,7 @@
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing AI</h2>
-        <p class="modal-desc">Checking storage...<brDownloading missing files...</p>
+        <p class="modal-desc">Loading Model via WebLLM...<br>This may take a few minutes.</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
