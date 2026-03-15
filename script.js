@@ -19,10 +19,12 @@ const FILES_TO_DOWNLOAD = [
 
 let generator = null;
 
-// --- STORAGE SYSTEM ---
+// --- STORAGE SYSTEM (FOLDER CREATION) ---
 
 async function getStorageDir() {
     const root = await navigator.storage.getDirectory();
+    // KEY LOGIC: { create: true } automatically creates the folder if it doesn't exist.
+    // If it exists, it just opens it.
     return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
 }
 
@@ -91,7 +93,6 @@ async function initializeAI() {
         const modelUrl = URL.createObjectURL(modelBlob);
 
         // 3. Initialize Pipeline
-        // We disable browser cache because we are managing it via OPFS
         env.useBrowserCache = false; 
         env.allowLocalModels = false;
 
@@ -113,25 +114,28 @@ async function initializeAI() {
 self.onmessage = async (e) => {
     if (e.data.type === 'load') {
         try {
-            self.postMessage({ status: 'log', data: "Checking eor_storage folder..." });
+            // 1. Verify/Create Folder
+            const dir = await getStorageDir();
+            self.postMessage({ status: 'log', data: "Folder '" + STORAGE_FOLDER + "' verified/created." });
             
             const filesToFetch = [];
-            // Strategy: Check files, download missing
+            // 2. Check files, download missing
             for (const file of FILES_TO_DOWNLOAD) {
                 if (await fileExists(file)) {
+                    self.postMessage({ status: 'log', data = "Found locally: " + file });
                     await loadFileToMemory(file); // Just for reporting
                 } else {
+                    self.postMessage({ status: 'log', data = "Missing: " + file + ". Downloading..." });
                     filesToFetch.push(file);
                 }
             }
 
             if (filesToFetch.length > 0) {
-                self.postMessage({ status: 'log', data: "Downloading missing files..." });
                 const promises = filesToFetch.map(f => downloadAndSave(f));
                 await Promise.all(promises);
             }
 
-            // Now initialize the AI
+            // 3. Initialize the AI
             await initializeAI();
 
         } catch (err) {
@@ -144,9 +148,6 @@ self.onmessage = async (e) => {
         try {
             const text = e.data.text;
             
-            // Run actual generation
-            // Using standard text generation. For Chat models, usually you format the prompt,
-            // but for a raw GGUF text-gen pipeline, we pass the raw text.
             const output = await generator(text, {
                 max_new_tokens: 150,
                 do_sample: true,
@@ -157,7 +158,6 @@ self.onmessage = async (e) => {
 
             const generatedText = output[0].generated_text;
             
-            // Send result
             self.postMessage({ status: 'streaming', data: generatedText });
             self.postMessage({ status: 'complete', data: generatedText });
 
@@ -189,7 +189,6 @@ const engine = {
         bar.style.width = '0%';
 
         try {
-            // IMPORTANT: 'type: module' allows the worker to use 'import'
             const blob = new Blob([workerCode], { type: 'text/javascript' });
             this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
         } catch (e) {
@@ -201,8 +200,6 @@ const engine = {
             log.innerHTML += '<span style="color:red">> Worker Error</span><br>';
         };
 
-        let filesTotal = FILES_TO_DOWNLOAD.length; // Define this if accessible or hardcode 4
-        // Since FILES_TO_DOWNLOAD is inside the worker string, we hardcode 4 for progress bar logic
         const TOTAL_FILES = 4;
         let filesProcessed = 0;
 
@@ -445,7 +442,7 @@ const app = {
     }
 };
 
-// CRITICAL FIX: Attach to window immediately so HTML buttons work
+// CRITICAL: Attach to window for buttons
 window.engine = engine;
 window.app = app;
 window.ui = ui;
