@@ -1,7 +1,5 @@
-// Import WebLLM
 import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
-// --- UI CONTROLLER ---
 const ui = {
     dom: {},
     
@@ -33,10 +31,7 @@ const ui = {
         if(this.dom.menuBtn) this.dom.menuBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this.toggleMobileMenu(); });
         if(this.dom.backdrop) this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
         if(this.dom.navWorkspace) this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
-        
-        // Reset button now clears memory too
         if(this.dom.navReset) this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
-        
         if(this.dom.navTheme) this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
         if(this.dom.statusPill) this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
         if(this.dom.input) {
@@ -102,17 +97,8 @@ const ui = {
         if(!list) return;
         const row = document.createElement('div');
         row.className = `message-row ${role}`;
-        
-        if (role === 'user') {
-            row.innerHTML = `<div class="message-content">${this.formatText(content)}</div>`;
-        } else {
-            // FIX: Use the Shifter Animation when loading
-            const displayContent = isLoading 
-                ? '<div class="loader-shifter"></div>' 
-                : this.formatText(content);
-            
-            row.innerHTML = `<div class="message-content">${displayContent}</div>`;
-        }
+        if (role === 'user') row.innerHTML = `<div class="message-content">${this.formatText(content)}</div>`;
+        else row.innerHTML = `<div class="message-content">${isLoading ? '<div class="loader-shifter"></div>' : this.formatText(content)}</div>`;
         list.appendChild(row);
         this.scrollToBottom();
     },
@@ -123,13 +109,9 @@ const ui = {
     }
 };
 
-// --- ENGINE CONTROLLER (WebLLM) ---
 const engine = {
     engine: null,
     isReady: false,
-    
-    // FIX: Conversation Memory Array
-    // This stores the history of the chat
     conversationHistory: [],
 
     init: async function() {
@@ -144,8 +126,6 @@ const engine = {
         try {
             const selectedModel = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
 
-            loader.log.innerText += `> Loading ${selectedModel}...\n`;
-
             this.engine = await webllm.CreateMLCEngine(selectedModel, {
                 initProgressCallback: (report) => {
                     loader.log.innerText = report.text;
@@ -155,7 +135,7 @@ const engine = {
                 }
             });
 
-            loader.log.innerText += '> Model Loaded Successfully!\n';
+            loader.log.innerText += '> Model Loaded!\n';
             loader.bar.style.width = '100%';
             this.isReady = true;
             ui.updateStatus(true);
@@ -163,7 +143,7 @@ const engine = {
             setTimeout(() => {
                 loader.overlay.classList.remove('active');
                 document.body.style.overflow = '';
-                ui.addMessage('eor', 'AI Online. I remember our conversation now.');
+                ui.addMessage('eor', 'AI Online. I remember our context.');
             }, 500);
 
         } catch (error) {
@@ -176,58 +156,52 @@ const engine = {
     },
 
     generate: async function(userInput) {
-        if (!this.isReady || !this.engine) {
-            return ui.addMessage('eor', "System offline.");
-        }
+        if (!this.isReady || !this.engine) return ui.addMessage('eor', "System offline.");
         
-        // Show Shifter Animation
         ui.addMessage('eor', '', true); 
         
         try {
-            // 1. Add user message to history
-            this.conversationHistory.push({
-                role: "user",
-                content: userInput
-            });
+            this.conversationHistory.push({ role: "user", content: userInput });
 
-            // 2. Send FULL history to AI
-            // This is how the AI "remembers"
+            // FIX: Increased max_tokens to 1024 to prevent cutoff
+            // and added logic to handle splitting if needed.
             const reply = await this.engine.chat.completions.create({
                 messages: this.conversationHistory,
                 temperature: 0.7,
-                max_tokens: 200,
+                max_tokens: 1024, 
             });
             
-            const text = reply.choices[0].message.content;
+            let text = reply.choices[0].message.content;
             
-            // 3. Add AI response to history
-            this.conversationHistory.push({
-                role: "assistant",
-                content: text
-            });
+            // Handle finish reason (Safety check)
+            if (reply.choices[0].finish_reason === "length") {
+                text += "\n\n[Response truncated due to length. Please say 'continue'.]";
+            }
 
+            this.conversationHistory.push({ role: "assistant", content: text });
             ui.updateLastMessage(text);
             
         } catch (err) {
-            // Remove the last user message from history if error occurs
             this.conversationHistory.pop();
             ui.updateLastMessage(`Error: ${err.message}`);
         }
     },
     
-    // Clear history on reset
     resetMemory: function() {
         this.conversationHistory = [];
+        if(this.engine) {
+            // Reset internal engine chat history too
+            this.engine.resetChat(); 
+        }
     }
 };
 
-// --- APP LOGIC ---
 const app = {
     handleEnter(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); } },
     
     reset() { 
         if(ui.dom.list) ui.dom.list.innerHTML = ''; 
-        engine.resetMemory(); // Clear memory
+        engine.resetMemory();
         ui.addMessage('eor', "System reset. Memory cleared."); 
     },
     
@@ -249,7 +223,7 @@ const app = {
 
     async assist(mode) {
         const text = ui.dom.input.value.trim();
-        if (!text) return ui.addMessage('eor', "Type something first to improve.");
+        if (!text) return ui.addMessage('eor', "Type something first.");
         if (!engine.isReady) { if(confirm("Start AI?")) engine.init(); return; }
         
         const prompt = `Improve this text: ${text}`;
@@ -257,12 +231,11 @@ const app = {
         ui.addMessage('user', `Assist: ${text}`);
         
         if(ui.dom.btn) ui.dom.btn.disabled = true;
-        await engine.generate(prompt); // Uses memory context
+        await engine.generate(prompt);
         if(ui.dom.btn) ui.dom.btn.disabled = false;
     }
 };
 
-// Initialize
 window.addEventListener('DOMContentLoaded', () => {
     ui.init();
     window.app = app;
