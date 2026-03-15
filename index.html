@@ -10,12 +10,12 @@
 </head>
 <body>
 
-    <!-- Mobile Menu Button (High Z-Index) -->
+    <!-- Mobile Menu Button -->
     <button class="mobile-menu-btn" id="menu-btn">
         <i class="fa-solid fa-bars" id="menu-icon"></i>
     </button>
 
-    <!-- Backdrop (Dimmed Background) -->
+    <!-- Backdrop -->
     <div class="mobile-backdrop" id="mobile-backdrop"></div>
 
     <div class="app-container">
@@ -32,8 +32,8 @@
                 </div>
             </div>
             
-            <!-- Navigation handled by JS -->
             <nav class="sidebar-nav">
+                <!-- No onclick here, handled by JS -->
                 <button class="nav-item active" id="nav-workspace">Workspace</button>
                 <button class="nav-item" id="nav-reset">New Session</button>
                 <button class="nav-item" id="nav-theme">
@@ -73,7 +73,8 @@
                 </div>
                 <div class="input-dock">
                     <textarea id="msg-input" rows="1" placeholder="Type anything here..."></textarea>
-                    <button id="send-btn" class="send-btn" disabled aria-label="Send Message">
+                    <!-- Send button ID for JS listener -->
+                    <button id="send-btn" class="send-btn" aria-label="Send Message">
                         <i class="fa-solid fa-arrow-up"></i>
                     </button>
                 </div>
@@ -84,14 +85,14 @@
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing AI Engine</h2>
-        <p class="modal-desc">Accessing <strong>eor_storage</strong>.<br>Loading GGUF Model into Memory...</p>
+        <p class="modal-desc">Checking <strong>eor_storage</strong>.<br>Downloading missing files from Hugging Face...</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
         <div class="log-text" id="loader-log">Waiting...</div>
     </div>
 
-    <!-- Script placed at the end to ensure DOM is ready -->
+    <!-- Module script -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
