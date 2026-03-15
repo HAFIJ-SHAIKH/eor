@@ -1,7 +1,6 @@
-console.log("System Boot. Target: eor_storage. Engine: Transformers.js (GGUF).");
+console.log("System Boot. Target: eor_storage. Engine: Transformers.js (Main Thread).");
 
-// 1. WORKER MODULE CODE (REAL INFERENCE)
-const workerCode = `
+// IMPORT AI LIBRARY DIRECTLY (Main Thread)
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
 
 // Configuration
@@ -17,14 +16,10 @@ const FILES_TO_DOWNLOAD = [
     "tokenizer_config.json"
 ];
 
-let generator = null;
-
-// --- STORAGE SYSTEM (FOLDER CREATION) ---
+// --- STORAGE SYSTEM (SAME AS BEFORE) ---
 
 async function getStorageDir() {
     const root = await navigator.storage.getDirectory();
-    // KEY LOGIC: { create: true } automatically creates the folder if it doesn't exist.
-    // If it exists, it just opens it.
     return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
 }
 
@@ -47,134 +42,37 @@ async function loadFileToMemory(filename) {
     const dir = await getStorageDir();
     const handle = await dir.getFileHandle(filename);
     const file = await handle.getFile();
-    const buffer = await file.arrayBuffer();
-    self.postMessage({ status: 'file_loaded', data: { name: filename, size: formatBytes(file.size) } });
-    return buffer;
+    return await file.arrayBuffer();
 }
 
 async function downloadAndSave(filename) {
     const url = HF_BASE_URL + filename;
-    self.postMessage({ status: 'initiate', data: { name: filename } });
-
     try {
         const response = await fetch(url);
         if (!response.ok) throw new Error("HTTP " + response.status);
         
         const buffer = await response.arrayBuffer();
         
-        // Save to eor_storage
         const dir = await getStorageDir();
         const handle = await dir.getFileHandle(filename, { create: true });
         const writable = await handle.createWritable();
         await writable.write(buffer);
         await writable.close();
         
-        self.postMessage({ status: 'file_complete', data: { name: filename, size: formatBytes(buffer.byteLength) }});
         return buffer;
     } catch (err) {
-        self.postMessage({ status: 'error', data: "Failed: " + filename + " - " + err.message });
-        throw err;
+        throw new Error("Failed to download " + filename + ": " + err.message);
     }
 }
 
-// --- REAL AI INITIALIZATION ---
+// --- ENGINE CONTROLLER (MAIN THREAD) ---
 
-async function initializeAI() {
-    try {
-        self.postMessage({ status: 'log', data: "Loading AI Model from Storage..." });
-
-        // 1. Load Config
-        const configBuffer = await loadFileToMemory("config.json");
-        const config = JSON.parse(new TextDecoder().decode(configBuffer));
-
-        // 2. Load GGUF Model File
-        const ggufBuffer = await loadFileToMemory("Qwen2.5-1.5B-Instruct.Q4_K_M.gguf");
-        const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
-        const modelUrl = URL.createObjectURL(modelBlob);
-
-        // 3. Initialize Pipeline
-        env.useBrowserCache = false; 
-        env.allowLocalModels = false;
-
-        generator = await pipeline('text-generation', modelUrl, {
-            quantized: true,
-            dtype: 'q4',
-        });
-
-        self.postMessage({ status: 'ready', count: FILES_TO_DOWNLOAD.length });
-        
-    } catch (error) {
-        console.error(error);
-        self.postMessage({ status: 'error', data: "AI Init Error: " + error.message });
-    }
-}
-
-// --- MAIN LOOP ---
-
-self.onmessage = async (e) => {
-    if (e.data.type === 'load') {
-        try {
-            // 1. Verify/Create Folder
-            const dir = await getStorageDir();
-            self.postMessage({ status: 'log', data: "Folder '" + STORAGE_FOLDER + "' verified/created." });
-            
-            const filesToFetch = [];
-            // 2. Check files, download missing
-            for (const file of FILES_TO_DOWNLOAD) {
-                if (await fileExists(file)) {
-                    self.postMessage({ status: 'log', data = "Found locally: " + file });
-                    await loadFileToMemory(file); // Just for reporting
-                } else {
-                    self.postMessage({ status: 'log', data = "Missing: " + file + ". Downloading..." });
-                    filesToFetch.push(file);
-                }
-            }
-
-            if (filesToFetch.length > 0) {
-                const promises = filesToFetch.map(f => downloadAndSave(f));
-                await Promise.all(promises);
-            }
-
-            // 3. Initialize the AI
-            await initializeAI();
-
-        } catch (err) {
-            self.postMessage({ status: 'error', data: err.message });
-        }
-    } 
-    else if (e.data.type === 'generate') {
-        if (!generator) return;
-
-        try {
-            const text = e.data.text;
-            
-            const output = await generator(text, {
-                max_new_tokens: 150,
-                do_sample: true,
-                temperature: 0.7,
-                top_k: 50,
-                return_full_text: false
-            });
-
-            const generatedText = output[0].generated_text;
-            
-            self.postMessage({ status: 'streaming', data: generatedText });
-            self.postMessage({ status: 'complete', data: generatedText });
-
-        } catch (err) {
-            self.postMessage({ status: 'error', data: "Inference Error: " + err.message });
-        }
-    }
-};
-`;
-
-// 2. ENGINE CONTROLLER
 const engine = {
-    worker: null,
+    generator: null,
     isReady: false,
     history: [],
 
-    init: function() {
+    init: async function() {
         if (this.isReady) return;
         
         const log = document.getElementById('loader-log');
@@ -189,67 +87,95 @@ const engine = {
         bar.style.width = '0%';
 
         try {
-            const blob = new Blob([workerCode], { type: 'text/javascript' });
-            this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
-        } catch (e) {
-            alert("Error creating Module Worker: " + e.message);
-            return;
-        }
-
-        this.worker.onerror = (e) => {
-            log.innerHTML += '<span style="color:red">> Worker Error</span><br>';
-        };
-
-        const TOTAL_FILES = 4;
-        let filesProcessed = 0;
-
-        this.worker.onmessage = (e) => {
-            const { status, data, progress } = e.data;
-
-            if (status === 'log') {
-                log.innerHTML += '> ' + data + '<br>';
-            }
-            else if (status === 'initiate') {
-                log.innerHTML += '> Fetching: ' + data.name + '<br>';
-            }
-            else if (status === 'file_loaded') {
-                log.innerHTML += '<span style="color:green">> Loaded from eor_storage: ' + data.name + '</span><br>';
-                filesProcessed++;
-                bar.style.width = Math.floor((filesProcessed / TOTAL_FILES) * 50) + '%'; 
-            }
-            else if (status === 'file_complete') {
-                log.innerHTML += '> Saved to eor_storage: ' + data.name + '<br>';
-                filesProcessed++;
-                bar.style.width = Math.floor((filesProcessed / TOTAL_FILES) * 50) + '%';
-            }
-            else if (status === 'ready') {
-                this.isReady = true;
-                bar.style.width = '100%';
-                overlay.classList.remove('active');
-                document.body.style.overflow = '';
-                ui.updateStatus(true);
-                ui.addMessage('ai', '<strong>AI Engine Online.</strong> Running locally from eor_storage.');
-            }
-            else if (status === 'error') {
-                log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + data + '</div><br>';
-                document.body.style.overflow = '';
-            }
-            else if (status === 'streaming') {
-                app.handleStream(data);
-            }
-            else if (status === 'complete') {
-                // Done
-            }
+            // 1. Verify/Create Folder
+            await getStorageDir();
+            log.innerHTML += '> Folder eor_storage verified.<br>';
             
-            log.scrollTop = log.scrollHeight;
-        };
+            const filesToFetch = [];
+            
+            // 2. Check files
+            for (const file of FILES_TO_DOWNLOAD) {
+                if (await fileExists(file)) {
+                    log.innerHTML += '> Found locally: ' + file + '<br>';
+                    // We need to load it to count progress
+                    await loadFileToMemory(file);
+                } else {
+                    log.innerHTML += '> Missing: ' + file + '. Downloading...<br>';
+                    filesToFetch.push(file);
+                }
+            }
 
-        this.worker.postMessage({ type: 'load' });
+            // Update progress for downloads
+            let processed = 0;
+            const total = FILES_TO_DOWNLOAD.length;
+
+            // 3. Download missing
+            if (filesToFetch.length > 0) {
+                for(const file of filesToFetch) {
+                    await downloadAndSave(file);
+                    processed++;
+                    bar.style.width = Math.floor((processed / total) * 80) + '%';
+                }
+            }
+
+            log.innerHTML += '> Loading AI Model into Memory...<br>';
+            
+            // 4. Load Config
+            const configBuffer = await loadFileToMemory("config.json");
+            // const config = JSON.parse(new TextDecoder().decode(configBuffer)); // Not strictly needed if using pipeline
+
+            // 5. Load GGUF
+            const ggufBuffer = await loadFileToMemory("Qwen2.5-1.5B-Instruct.Q4_K_M.gguf");
+            const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
+            const modelUrl = URL.createObjectURL(modelBlob);
+
+            // 6. Initialize Pipeline
+            env.useBrowserCache = false; 
+            env.allowLocalModels = false;
+
+            this.generator = await pipeline('text-generation', modelUrl, {
+                quantized: true,
+                dtype: 'q4',
+            });
+
+            bar.style.width = '100%';
+            this.isReady = true;
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
+            ui.updateStatus(true);
+            ui.addMessage('ai', '<strong>AI Engine Online.</strong> Running locally from eor_storage.');
+
+        } catch (error) {
+            console.error(error);
+            log.innerHTML += '<div style="color:red; padding:5px;">> ERROR: ' + error.message + '</div><br>';
+            document.body.style.overflow = '';
+            alert("Error: " + error.message);
+        }
     },
 
-    generate: function(text, mode) {
-        if (!this.worker) return;
-        this.worker.postMessage({ type: 'generate', text: text, history: this.history, mode: mode });
+    generate: async function(text, mode) {
+        if (!this.generator) return;
+
+        try {
+            // Small timeout to allow UI to update "Thinking..." before freezing
+            await new Promise(r => setTimeout(r, 50));
+
+            const output = await this.generator(text, {
+                max_new_tokens: 150,
+                do_sample: true,
+                temperature: 0.7,
+                top_k: 50,
+                return_full_text: false
+            });
+
+            const generatedText = output[0].generated_text;
+            app.handleStream(generatedText);
+            app.handleResponse(generatedText, mode);
+
+        } catch (err) {
+            console.error(err);
+            ui.addMessage('ai', "Error: " + err.message);
+        }
     },
 
     addToHistory: function(role, content) {
@@ -372,7 +298,7 @@ const app = {
         ui.addMessage('ai', "System reset.");
     },
 
-    send: function() {
+    send: async function() {
         if (!engine.isReady) {
             const confirmInit = confirm("AI Offline. Load Model?");
             if(confirmInit) engine.init();
@@ -392,10 +318,10 @@ const app = {
         ui.dom.btn.disabled = true;
         ui.addMessage('ai', '', true);
         
-        engine.generate(text, 'chat');
+        await engine.generate(text, 'chat');
     },
 
-    assist: function(mode) {
+    assist: async function(mode) {
         if (!engine.isReady) { 
             const confirmInit = confirm("AI Offline. Load Model?");
             if(confirmInit) engine.init();
@@ -409,7 +335,7 @@ const app = {
         ui.dom.input.placeholder = "Processing...";
         ui.dom.input.disabled = true;
 
-        engine.generate(text, mode);
+        await engine.generate(text, mode);
 
         this.currentAssistMode = mode;
         this.originalInput = text;
@@ -429,13 +355,14 @@ const app = {
     },
 
     handleResponse: function(data, mode) {
-        let cleanData = data; 
+        ui.dom.btn.disabled = false;
+        ui.dom.input.focus();
+        
         if (mode !== 'chat') {
-            cleanData = cleanData.replace(/```[\w]*\n?/g, '').replace(/```/g, '');
+            let cleanData = data.replace(/```[\w]*\n?/g, '').replace(/```/g, '');
             ui.dom.input.value = cleanData;
             ui.dom.input.disabled = false;
             ui.dom.input.placeholder = "Type anything here...";
-            ui.dom.input.focus();
             ui.resize(ui.dom.input); 
             ui.detectCode(ui.dom.input);
         }
