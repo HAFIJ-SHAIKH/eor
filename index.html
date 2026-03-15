@@ -5,11 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EOR | AI Workspace</title>
     
-    <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- Local CSS -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -39,7 +36,7 @@
             <button class="nav-item" onclick="app.reset()">New Session</button>
             
             <div class="sidebar-footer">
-                <!-- This click now works because window.engine is exposed in JS -->
+                <!-- This button must work immediately -->
                 <div class="status-pill" onclick="engine.init()">
                     <div class="status-dot" id="status-dot"></div>
                     <span class="status-text" id="status-text">Model Offline</span>
@@ -51,7 +48,6 @@
         <main class="main-content">
             <div class="chat-viewport" id="chat-viewport">
                 <div class="chat-container" id="chat-list">
-                    <!-- Initial Message -->
                     <div class="message-row">
                         <div class="avatar"><i class="fa-solid fa-robot"></i></div>
                         <div class="message-content">
@@ -68,7 +64,6 @@
                 </div>
             </div>
 
-            <!-- Input Area -->
             <div class="input-dock-wrapper">
                 <div class="assist-toolbar">
                     <button class="assist-btn universal-btn" onclick="app.assist('universal')" title="AI Assist">
@@ -88,18 +83,18 @@
         </main>
     </div>
 
-    <!-- MOVED OVERLAY HERE (Direct child of body) -->
+    <!-- OVERLAY MUST BE HERE (Direct child of body) -->
     <div class="loader-overlay" id="loader-overlay">
         <i class="fa-solid fa-microchip loader-icon"></i>
         <h2 class="modal-title">Initializing Engine</h2>
-        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files from Hugging Face.<br>Please wait...</p>
+        <p class="modal-desc">Downloading <strong>GGUF</strong> and supporting files.<br>Please wait...</p>
         <div class="progress-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
         <div class="log-text" id="loader-log">Waiting to start...</div>
     </div>
 
-    <!-- Main Application Script -->
-    <script src="script.js" defer></script>
+    <!-- REMOVED 'defer' to ensure immediate execution -->
+    <script src="script.js"></script>
 </body>
 </html>
