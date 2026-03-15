@@ -1,73 +1,5 @@
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
-
-// --- CONFIGURATION ---
-const HF_USERNAME = "eorchat";
-const REPO_NAME = "eor";
-const HF_BASE_URL = `https://huggingface.co/${HF_USERNAME}/${REPO_NAME}/resolve/main/`;
-const STORAGE_FOLDER = "eor_storage";
-
-const FILES_TO_DOWNLOAD = [
-    "Qwen2.5-1.5B-Instruct.Q4_K_M.gguf",
-    "config.json",
-    "tokenizer.json",
-    "tokenizer_config.json"
-];
-
-// --- STORAGE SYSTEM (OPFS) ---
-async function getStorageDir() {
-    const root = await navigator.storage.getDirectory();
-    return await root.getDirectoryHandle(STORAGE_FOLDER, { create: true });
-}
-
-async function fileExists(filename) {
-    try {
-        const dir = await getStorageDir();
-        await dir.getFileHandle(filename);
-        return true;
-    } catch (e) { return false; }
-}
-
-async function loadFileToMemory(filename) {
-    const dir = await getStorageDir();
-    const handle = await dir.getFileHandle(filename);
-    const file = await handle.getFile();
-    if (file.size === 0) throw new Error(`File ${filename} is corrupted (0 bytes).`);
-    return await file.arrayBuffer();
-}
-
-async function downloadAndSave(filename, progressCallback) {
-    const url = HF_BASE_URL + filename;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    
-    const reader = response.body.getReader();
-    const contentLength = +response.headers.get('Content-Length');
-    let receivedLength = 0;
-    let chunks = [];
-    
-    while(true) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        receivedLength += value.length;
-        if(progressCallback) progressCallback(receivedLength, contentLength);
-    }
-
-    const buffer = new Uint8Array(receivedLength);
-    let position = 0;
-    for(let chunk of chunks) {
-        buffer.set(chunk, position);
-        position += chunk.length;
-    }
-
-    const dir = await getStorageDir();
-    const handle = await dir.getFileHandle(filename, { create: true });
-    const writable = await handle.createWritable();
-    await writable.write(buffer);
-    await writable.close();
-    
-    return buffer.buffer;
-}
+// Import WebLLM instead of Transformers
+import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
 // --- UI CONTROLLER ---
 const ui = {
@@ -97,54 +29,19 @@ const ui = {
             assistBtn: document.getElementById('assist-btn')
         };
 
-        // --- STRICT EVENT LISTENERS ---
-        
-        // 1. Mobile Menu
-        if(this.dom.menuBtn) {
-            this.dom.menuBtn.addEventListener('click', (e) => {
-                e.preventDefault(); e.stopPropagation();
-                this.toggleMobileMenu();
-            });
-        }
-
-        if(this.dom.backdrop) {
-            this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
-        }
-
-        // 2. Navigation
+        // Event Listeners
+        if(this.dom.menuBtn) this.dom.menuBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this.toggleMobileMenu(); });
+        if(this.dom.backdrop) this.dom.backdrop.addEventListener('click', () => this.closeMobileMenu());
         if(this.dom.navWorkspace) this.dom.navWorkspace.addEventListener('click', () => this.closeMobileMenu());
         if(this.dom.navReset) this.dom.navReset.addEventListener('click', () => { app.reset(); this.closeMobileMenu(); });
         if(this.dom.navTheme) this.dom.navTheme.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); this.closeMobileMenu(); });
-
-        // 3. Status Pill (Initialize)
-        if(this.dom.statusPill) {
-            this.dom.statusPill.addEventListener('click', () => { 
-                engine.init(); 
-                this.closeMobileMenu(); 
-            });
-        }
-
-        // 4. Input Events
+        if(this.dom.statusPill) this.dom.statusPill.addEventListener('click', () => { engine.init(); this.closeMobileMenu(); });
         if(this.dom.input) {
             this.dom.input.addEventListener('input', () => this.resize(this.dom.input));
             this.dom.input.addEventListener('keydown', (e) => app.handleEnter(e));
         }
-        
-        // 5. Send Button
-        if(this.dom.btn) {
-            this.dom.btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                app.send();
-            });
-        }
-
-        // 6. Assist Button
-        if(this.dom.assistBtn) {
-            this.dom.assistBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                app.assist('universal');
-            });
-        }
+        if(this.dom.btn) this.dom.btn.addEventListener('click', (e) => { e.preventDefault(); app.send(); });
+        if(this.dom.assistBtn) this.dom.assistBtn.addEventListener('click', (e) => { e.preventDefault(); app.assist('universal'); });
 
         this.updateStatus(false);
     },
@@ -214,9 +111,9 @@ const ui = {
     }
 };
 
-// --- ENGINE CONTROLLER ---
+// --- ENGINE CONTROLLER (WebLLM) ---
 const engine = {
-    generator: null,
+    engine: null,
     isReady: false,
 
     init: async function() {
@@ -225,46 +122,29 @@ const engine = {
         
         loader.overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
-        loader.log.innerText = '> System Init...\n';
+        loader.log.innerText = '> Initializing WebLLM...\n';
         loader.bar.style.width = '0%';
 
         try {
-            // 1. DOWNLOAD FILES
-            let progress = 0;
-            const totalFiles = FILES_TO_DOWNLOAD.length;
-            for (const file of FILES_TO_DOWNLOAD) {
-                loader.log.innerText += `> Checking ${file}...\n`;
-                if (await fileExists(file)) {
-                    try { await loadFileToMemory(file); loader.log.innerText += `> Found.\n`; } 
-                    catch (e) {
-                        loader.log.innerText += `> Downloading...\n`;
-                        await downloadAndSave(file, (l, s) => loader.bar.style.width = ((progress + l/s) / totalFiles * 80) + '%');
+            // Use a small, fast model suitable for web
+            // "Qwen2.5-1.5B-Instruct-q4f16_1-MLC" is optimized for browsers
+            const selectedModel = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+
+            loader.log.innerText += `> Loading ${selectedModel}...\n`;
+            loader.log.innerText += `> (This caches automatically in browser)\n`;
+
+            // Create engine with progress callback
+            this.engine = await webllm.CreateMLCEngine(selectedModel, {
+                initProgressCallback: (report) => {
+                    loader.log.innerText = report.text;
+                    // Update progress bar if percentage available
+                    if (report.progress !== undefined) {
+                        loader.bar.style.width = (report.progress * 100) + '%';
                     }
-                } else {
-                    loader.log.innerText += `> Downloading...\n`;
-                    await downloadAndSave(file, (l, s) => loader.bar.style.width = ((progress + l/s) / totalFiles * 80) + '%');
-                }
-                progress++;
-                loader.bar.style.width = (progress / totalFiles) * 80 + '%';
-            }
-
-            // 2. LOAD MODEL
-            loader.log.innerText += '> Loading AI Engine...\n';
-            const ggufBuffer = await loadFileToMemory(FILES_TO_DOWNLOAD[0]);
-            const modelBlob = new Blob([ggufBuffer], { type: 'application/octet-stream' });
-            const modelUrl = URL.createObjectURL(modelBlob);
-
-            env.useBrowserCache = false; 
-            env.allowLocalModels = false;
-
-            this.generator = await pipeline('text-generation', modelUrl, {
-                quantized: true, dtype: 'q4',
-                progress_callback: (data) => {
-                    if(data.status === 'loading') loader.log.innerText = `> Loading: ${data.file} ${Math.round(data.progress || 0)}%`;
                 }
             });
 
-            loader.log.innerText += '> Model Loaded!\n';
+            loader.log.innerText += '> Model Loaded Successfully!\n';
             loader.bar.style.width = '100%';
             this.isReady = true;
             ui.updateStatus(true);
@@ -272,13 +152,21 @@ const engine = {
             setTimeout(() => {
                 loader.overlay.classList.remove('active');
                 document.body.style.overflow = '';
-                ui.addMessage('eor', 'AI Online. Model loaded successfully.');
+                ui.addMessage('eor', 'AI Online. WebLLM Engine Ready.');
             }, 500);
 
         } catch (error) {
             console.error(error);
             loader.log.innerHTML += `\n<span style="color:red">> ERROR: ${error.message}</span>\n`;
-            if (error.message.includes('memory')) loader.log.innerHTML += `\n> Memory Limit Reached.\n`;
+            
+            if (error.message.includes('network') || error.message.includes('fetch')) {
+                loader.log.innerHTML += `\n> Connection Issue. Please check WiFi.\n`;
+            } else if (error.message.includes('memory')) {
+                loader.log.innerHTML += `\n> Out of Memory. Try closing other tabs.\n`;
+            } else {
+                loader.log.innerHTML += `\n> If using GitHub Pages, ensure the repo is public.\n`;
+            }
+            
             loader.bar.style.width = '0%';
             document.body.style.overflow = '';
             ui.updateStatus(false);
@@ -286,11 +174,23 @@ const engine = {
     },
 
     generate: async function(prompt) {
-        if (!this.isReady) return ui.addMessage('eor', "System offline. Click 'Offline' to start.");
+        if (!this.isReady || !this.engine) {
+            return ui.addMessage('eor', "System offline. Click 'Offline' to start.");
+        }
+        
         ui.addMessage('eor', '', true); 
+        
         try {
-            const output = await this.generator(prompt, { max_new_tokens: 100 });
-            ui.updateLastMessage(output[0].generated_text);
+            // WebLLM completion API
+            const reply = await this.engine.chat.completions.create({
+                messages: [{ role: "user", content: prompt }],
+                temperature: 0.7,
+                max_tokens: 200,
+            });
+            
+            const text = reply.choices[0].message.content;
+            ui.updateLastMessage(text);
+            
         } catch (err) {
             ui.updateLastMessage(`Error: ${err.message}`);
         }
@@ -307,12 +207,15 @@ const app = {
         if (!text) return;
         if (!engine.isReady) { if(confirm("Start AI?")) engine.init(); return; }
 
-        ui.dom.input.value = ''; ui.dom.input.style.height = 'auto';
+        ui.dom.input.value = ''; 
+        ui.dom.input.style.height = 'auto';
         ui.addMessage('user', text);
-        ui.dom.btn.disabled = true;
+        
+        if(ui.dom.btn) ui.dom.btn.disabled = true;
         await engine.generate(text);
-        ui.dom.btn.disabled = false;
-        ui.dom.input.focus();
+        if(ui.dom.btn) ui.dom.btn.disabled = false;
+        
+        if(ui.dom.input) ui.dom.input.focus();
     },
 
     async assist(mode) {
@@ -323,9 +226,10 @@ const app = {
         const prompt = `Improve this text: ${text}`;
         ui.dom.input.value = '';
         ui.addMessage('user', `Assist: ${text}`);
-        ui.dom.btn.disabled = true;
+        
+        if(ui.dom.btn) ui.dom.btn.disabled = true;
         await engine.generate(prompt);
-        ui.dom.btn.disabled = false;
+        if(ui.dom.btn) ui.dom.btn.disabled = false;
     }
 };
 
